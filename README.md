@@ -91,18 +91,6 @@ Audit trail of recognized messages.
 npm install
 ```
 
-### Environment Variables
-
-Create `.env` (do **not** commit this file):
-
-```
-DISCORD_TOKEN=your_bot_token
-SLEEP_CHANNEL_ID=channel_id_for_checkins
-DEFAULT_TZ=America/Los_Angeles
-ADMIN_USER_ID=your_discord_user_id
-DB_PATH=./sleep.sqlite
-```
-
 ### Run Locally
 
 ```bash
@@ -115,30 +103,6 @@ npm start
 
 Use a **Background Worker** with a **Persistent Disk** so SQLite survives restarts.
 
-**Render Settings**
-
-* Build: `npm install`
-* Start: `npm start`
-* Persistent Disk mount: `/var/data`
-* Set `DB_PATH=/var/data/sleep.sqlite`
-
-Render auto-deploys on every push to `main`.
-
-To pause the bot: **Suspend** the service (data remains intact).
-
----
-
-## Permissions
-
-Grant the bot **in the sleep channel**:
-
-* View Channel
-* Read Message History
-* Add Reactions
-* **Send Messages** (required for prompts)
-
-No Developer Portal permission changes are needed for messaging.
-
 ---
 
 ## Privacy & Safety
@@ -146,27 +110,3 @@ No Developer Portal permission changes are needed for messaging.
 * Tokens and secrets live only in `.env` / host environment variables
 * SQLite database is **not** committed to Git
 * Exports are sent via **DM** to the admin only
-
----
-
-## Development Workflow
-
-1. Edit code locally
-2. Test (optional)
-3. `git commit && git push`
-4. Render auto-redeploys
-
----
-
-## Roadmap (Ideas)
-
-* Weekly summaries (average sleep, consistency)
-* Per-user stats (`!stats`)
-* DM-only prompts
-* Correlation between sleep duration and energy rating
-
----
-
-## License
-
-MIT (or update as you prefer)
