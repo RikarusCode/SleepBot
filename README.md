@@ -54,7 +54,7 @@ A Discord bot for lightweight sleep tracking with natural-language check-ins. Us
 ### Admin / Utility
 
 * `!export` — DM a CSV of all closed sessions (admin only)
-* `!reset last` — delete *your* most recent datapoint (safe; won’t delete older ones)
+* `!reset last` — delete *your* most recent entry (safe; won’t delete older ones)
 * `!reset all` — wipe **all** data (admin only)
 
 ---
