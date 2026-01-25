@@ -1,16 +1,15 @@
+// src/index.js
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const { DateTime } = require("luxon");
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, AttachmentBuilder } = require("discord.js");
 const { initDb } = require("./db");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const SLEEP_CHANNEL_ID = process.env.SLEEP_CHANNEL_ID;
 const DB_PATH = process.env.DB_PATH || "./sleep.sqlite";
 const DEFAULT_TZ = process.env.DEFAULT_TZ || "America/Los_Angeles";
-
-// Optional: restrict exports to a single Discord user ID (you)
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID || null;
 
 if (!TOKEN) throw new Error("DISCORD_TOKEN missing from .env");
@@ -21,28 +20,122 @@ const db = initDb(DB_PATH);
 const GOODNIGHT = new Set(["gn", "goodnight", "good night", "gngn", "night", "good nite"]);
 const GOODMORNING = new Set(["gm", "goodmorning", "good morning", "morning"]);
 
-// ---------- Parsing helpers ----------
-
 function normalize(s) {
   return s.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-// Extract optional "(time)" and optional "!rating".
-// Examples:
-// "gn (11pm) !8"
-// "gm (9am)"
-// "gn !5"
-// "!7"
+// Accepts: 9pm, 9 PM, 9:00am, 9:00 am, 21:15, 09:30, 9, 9:00
+function parseTimeToken(token) {
+  if (!token) return null;
+  const t = token.trim();
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!m) return null;
+
+  const rawHour = Number(m[1]);
+  const minute = m[2] ? Number(m[2]) : 0;
+  const suffix = m[3] ? m[3].toLowerCase() : null;
+
+  if (minute < 0 || minute > 59) return null;
+  if (rawHour < 0 || rawHour > 23) return null;
+  if (suffix && (rawHour < 1 || rawHour > 12)) return null;
+
+  return { rawHour, minute, suffix }; // suffix: 'am'|'pm'|null
+}
+
+// If suffix provided -> 1 interpretation.
+// If suffix missing and rawHour<=12 -> ambiguous -> both AM and PM.
+// If rawHour>12 -> 24h -> 1 interpretation.
+function expandInterpretations(parsed) {
+  if (!parsed) return [];
+  const { rawHour, minute, suffix } = parsed;
+
+  if (suffix === "am") {
+    const hour = rawHour === 12 ? 0 : rawHour;
+    return [{ hour, minute }];
+  }
+  if (suffix === "pm") {
+    const hour = rawHour === 12 ? 12 : rawHour + 12;
+    return [{ hour, minute }];
+  }
+
+  if (rawHour > 12) return [{ hour: rawHour, minute }];
+
+  const amHour = rawHour === 12 ? 0 : rawHour;
+  const pmHour = rawHour === 12 ? 12 : rawHour + 12;
+  return [{ hour: amHour, minute }, { hour: pmHour, minute }];
+}
+
+// GN override: choose a sensible interpretation around "now".
+// Allows proactive logging like 10pm + (11pm) => today 11pm.
+// If candidate is >12h in future, shift to previous day.
+function computeBedtimeUtcFromOverride(timeToken) {
+  const now = DateTime.now().setZone(DEFAULT_TZ);
+  const parsed = parseTimeToken(timeToken);
+  const opts = expandInterpretations(parsed);
+  if (opts.length === 0) return null;
+
+  const candidates = [];
+  for (const { hour, minute } of opts) {
+    const today = now.set({ hour, minute, second: 0, millisecond: 0 });
+    candidates.push(today, today.minus({ days: 1 }));
+  }
+
+  // pick candidate closest to now
+  let best = candidates[0];
+  let bestScore = Math.abs(best.diff(now, "minutes").minutes);
+  for (const c of candidates.slice(1)) {
+    const score = Math.abs(c.diff(now, "minutes").minutes);
+    if (score < bestScore) {
+      best = c;
+      bestScore = score;
+    }
+  }
+
+  if (best > now && best.diff(now, "hours").hours > 12) best = best.minus({ days: 1 });
+  return best.toUTC().toISO();
+}
+
+// GM override: always interpret as next occurrence after bed.
+// If ambiguous (no am/pm), pick the one that yields the smallest positive delta after bed.
+function computeWakeUtcFromOverride(timeToken, bedIsoUtc) {
+  const bedLocal = DateTime.fromISO(bedIsoUtc, { zone: "utc" }).setZone(DEFAULT_TZ);
+
+  const parsed = parseTimeToken(timeToken);
+  const opts = expandInterpretations(parsed);
+  if (opts.length === 0) return null;
+
+  let best = null;
+  let bestDelta = Infinity;
+
+  for (const { hour, minute } of opts) {
+    let wake = bedLocal.set({ hour, minute, second: 0, millisecond: 0 });
+    if (wake <= bedLocal) wake = wake.plus({ days: 1 });
+
+    const delta = wake.diff(bedLocal, "minutes").minutes;
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = wake;
+    }
+  }
+
+  return best.toUTC().toISO();
+}
+
+function minutesBetween(isoUtcA, isoUtcB) {
+  const a = DateTime.fromISO(isoUtcA, { zone: "utc" });
+  const b = DateTime.fromISO(isoUtcB, { zone: "utc" });
+  return Math.round(b.diff(a, "minutes").minutes);
+}
+
+// Parse:
+// - rating only: "!5"
+// - commands: "gn (11pm) !8", "gn !5", "gm (9am)", "good morning (9:00 am)"
 function parseMessage(raw) {
   const trimmed = raw.trim();
 
-  // rating-only message: "!5"
   const ratingOnly = trimmed.match(/^!\s*([1-9]|10)\s*$/);
-  if (ratingOnly) {
-    return { kind: "RATING_ONLY", rating: Number(ratingOnly[1]) };
-  }
+  if (ratingOnly) return { kind: "RATING_ONLY", rating: Number(ratingOnly[1]) };
 
-  // pull rating token anywhere (expect user puts it after GN/GM, but allow flexible)
   let rating = null;
   const ratingMatch = trimmed.match(/!\s*([1-9]|10)\s*$/);
   let withoutRating = trimmed;
@@ -51,7 +144,6 @@ function parseMessage(raw) {
     withoutRating = trimmed.slice(0, ratingMatch.index).trim();
   }
 
-  // pull time override like "(9am)" or "(09:30)" "(9:30pm)"
   let timeToken = null;
   const timeMatch = withoutRating.match(/\(\s*([^)]+)\s*\)\s*$/);
   let commandPart = withoutRating;
@@ -61,70 +153,18 @@ function parseMessage(raw) {
   }
 
   const cmd = normalize(commandPart);
-
   if (GOODNIGHT.has(cmd)) return { kind: "GN", timeToken, rating };
   if (GOODMORNING.has(cmd)) return { kind: "GM", timeToken, rating };
-
   return { kind: "UNKNOWN" };
 }
 
-// Parses time token like "9am", "11pm", "9:30", "09:30pm"
-function parseTimeTokenToHourMinute(token) {
-  if (!token) return null;
-  const t = token.toLowerCase().replace(/\s+/g, "");
-
-  const m = t.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/);
-  if (!m) return null;
-
-  let hour = Number(m[1]);
-  const minute = m[2] ? Number(m[2]) : 0;
-  const ampm = m[3] || null;
-
-  if (minute < 0 || minute > 59) return null;
-  if (hour < 0 || hour > 23) return null;
-
-  if (ampm) {
-    if (hour < 1 || hour > 12) return null;
-    if (ampm === "am") hour = hour === 12 ? 0 : hour;
-    if (ampm === "pm") hour = hour === 12 ? 12 : hour + 12;
+async function safeReply(message, text) {
+  try {
+    await message.reply(text);
+  } catch {
+    // If Send Messages is missing, replies will fail—no crash.
   }
-
-  return { hour, minute };
 }
-
-// For GN override: interpret "11pm" as the most recent occurrence of that time (usually last night).
-function computeBedtimeUtcFromOverride(timeToken) {
-  const now = DateTime.now().setZone(DEFAULT_TZ);
-  const hm = parseTimeTokenToHourMinute(timeToken);
-  if (!hm) return null;
-
-  let candidate = now.set({ hour: hm.hour, minute: hm.minute, second: 0, millisecond: 0 });
-  if (candidate > now) candidate = candidate.minus({ days: 1 }); // "11pm" when it's 2pm means last night
-  return candidate.toUTC().toISO();
-}
-
-// For GM override: time is the next occurrence after the bed time.
-function computeWakeUtcFromOverride(timeToken, bedIsoUtc) {
-  const hm = parseTimeTokenToHourMinute(timeToken);
-  if (!hm) return null;
-
-  const bedLocal = DateTime.fromISO(bedIsoUtc, { zone: "utc" }).setZone(DEFAULT_TZ);
-
-  let wakeLocal = bedLocal.set({ hour: hm.hour, minute: hm.minute, second: 0, millisecond: 0 });
-
-  // ensure wake > bed
-  if (wakeLocal <= bedLocal) wakeLocal = wakeLocal.plus({ days: 1 });
-
-  return wakeLocal.toUTC().toISO();
-}
-
-function minutesBetween(isoUtcA, isoUtcB) {
-  const a = DateTime.fromISO(isoUtcA, { zone: "utc" });
-  const b = DateTime.fromISO(isoUtcB, { zone: "utc" });
-  return Math.round(b.diff(a, "minutes").minutes);
-}
-
-// ---------- Bot ----------
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -132,21 +172,30 @@ const client = new Client({
 
 client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-  console.log(`Watching channel ${SLEEP_CHANNEL_ID} in tz=${DEFAULT_TZ}`);
+  console.log(`Watching channel ${SLEEP_CHANNEL_ID} tz=${DEFAULT_TZ}`);
+  console.log(`DB: ${DB_PATH}`);
 });
 
 async function promptRating(message) {
-  await message.reply("Quick check-in: reply with `!1`–`!10` for how energetic you felt today (10 = great).");
+  await safeReply(message, "Quick check-in: reply with `!1`–`!10` for how energetic you felt today (10 = great).");
 }
 
 async function promptMissingGM(message) {
-  await message.reply(
-    "I saw two `gn` in a row. Did you forget a good morning? You can log it retroactively like: `gm (9am)`"
+  await safeReply(
+    message,
+    "I saw two `gn` in a row. If you forgot a good morning, you can log it retroactively like: `gm (9am)`"
+  );
+}
+
+async function promptConsecutiveGM(message) {
+  await safeReply(
+    message,
+    "I saw two `gm` in a row. If you meant to correct the time, use `gm (9am)`; otherwise ignore."
   );
 }
 
 async function remindRatingOnGM(message) {
-  await message.reply("Reminder: you still owe an energy rating for yesterday. Reply with `!1`–`!10`.");
+  await safeReply(message, "Reminder: you still owe an energy rating. Reply with `!1`–`!10`.");
 }
 
 client.on("messageCreate", async (message) => {
@@ -158,72 +207,159 @@ client.on("messageCreate", async (message) => {
     const username = message.author.username;
     const raw = message.content;
 
-    const parsed = parseMessage(raw);
-
-    // Handle rating-only message: "!5"
-    if (parsed.kind === "RATING_ONLY") {
-      const target = db.lastSessionNeedingRating(userId);
-      if (!target) {
-        // No pending rating: ignore or inform
-        await message.react("❓").catch(() => {});
+    // Export command (admin-only optional)
+    // ---- DM Export: !export (admin only) ----
+    if (raw.trim() === "!export") {
+      if (!ADMIN_USER_ID || message.author.id !== ADMIN_USER_ID) {
+        await safeReply(message, "Not allowed.");
         return;
       }
-      db.setRating(target.id, parsed.rating);
-      db.recordCheckin(userId, username, "RATING", new Date().toISOString(), raw);
-      await message.react("✅").catch(() => {});
+
+      const rows = db.sessionsForExport();
+      const header = ["user_id","username","bed_ts_utc","wake_ts_utc","sleep_minutes","rating_1_10","rating_status"];
+      const lines = [header.join(",")];
+
+      for (const r of rows) {
+        const vals = header.map((k) => (r[k] == null ? "" : String(r[k]).replaceAll('"', '""')));
+        lines.push(vals.map(v => `"${v}"`).join(","));
+      }
+
+      const csv = lines.join("\n");
+
+      try {
+        const file = new AttachmentBuilder(Buffer.from(csv, "utf8"), { name: "sleep_sessions.csv" });
+        await message.author.send({
+          content: `Here’s your export (${rows.length} sessions).`,
+          files: [file],
+        });
+
+        await safeReply(message, "✅ Sent you a DM with the CSV.");
+        await message.react("📩").catch(() => {});
+      } catch {
+        await safeReply(
+          message,
+          "I couldn't DM you the file. Enable DMs for this server (or allow DMs from server members), then try again."
+        );
+      }
+      return;
+    }
+    
+    // ---- Reset commands ----
+    // Anyone: !reset last
+    // Admin-only: !reset all
+    if (raw.trim().startsWith("!reset")) {
+      const parts = raw.trim().split(/\s+/);
+      const arg = (parts[1] || "").toLowerCase();
+
+      if (arg === "all") {
+        if (!ADMIN_USER_ID || message.author.id !== ADMIN_USER_ID) {
+          await safeReply(message, "Not allowed.");
+          return;
+        }
+        db.wipeAll();
+        await safeReply(message, "♻️ Reset complete: wiped ALL data.");
+        await message.react("♻️").catch(() => {});
+        return;
+      }
+
+      if (arg === "last") {
+        const last = db.lastSession(message.author.id);
+        if (!last) {
+          await safeReply(message, "No data to reset yet.");
+          return;
+        }
+
+        // Guard: do not allow repeated !reset last to delete older datapoints.
+        const alreadyResetId = db.getLastResetSessionId(message.author.id);
+        if (alreadyResetId && Number(alreadyResetId) === Number(last.id)) {
+          await safeReply(
+            message,
+            "I already reset your last datapoint. I won’t roll back further. (Create a new datapoint before using `!reset last` again.)"
+          );
+          return;
+        }
+
+        db.deleteSessionAndCheckins(message.author.id, last);
+        db.setLastResetSessionId(message.author.id, last.id);
+
+        await safeReply(message, "♻️ Reset your last datapoint.");
+        await message.react("♻️").catch(() => {});
+        return;
+      }
+
+      await safeReply(message, "Usage: `!reset last` (anyone) or `!reset all` (admin only).");
       return;
     }
 
+    const parsed = parseMessage(raw);
     if (parsed.kind === "UNKNOWN") return;
 
     const nowIsoUtc = new Date().toISOString();
 
-    // ---- GN ----
+    // Rating-only message: "!5"
+    if (parsed.kind === "RATING_ONLY") {
+      const target = db.lastSessionNeedingRating(userId);
+      if (!target) {
+        await message.react("❓").catch(() => {});
+        return;
+      }
+      db.setRating(target.id, parsed.rating);
+      db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
+      await message.react("✅").catch(() => {});
+      return;
+    }
+
+    // GN
     if (parsed.kind === "GN") {
-      // If there is a previous session still missing rating and a new GN arrives, omit it.
+      // If previous session is missing rating and it's CLOSED, and user starts next GN, omit it
       const missingRating = db.lastSessionNeedingRating(userId);
       if (missingRating && missingRating.status === "CLOSED") {
-        // user never answered; omit rating for that session
         db.omitRating(missingRating.id);
       }
 
       const open = db.getOpenSession(userId);
       if (open) {
-        // consecutive GN before a GM -> prompt user to do GM(time)
-        await promptMissingGM(message).catch(() => {});
+        // consecutive GN (GN->GN) implies missing GM
+        await promptMissingGM(message);
       }
 
       const bedIsoUtc = parsed.timeToken ? computeBedtimeUtcFromOverride(parsed.timeToken) : nowIsoUtc;
       if (parsed.timeToken && !bedIsoUtc) {
-        await message.reply("I couldn't parse that time. Try like `(11pm)` or `(9:30am)`").catch(() => {});
+        await safeReply(message, "I couldn't parse that time. Try `(11pm)`, `(9:00 am)`, or `(21:15)`.");
         return;
       }
 
       const sessionId = db.createSession(userId, username, bedIsoUtc);
       db.recordCheckin(userId, username, "GN", bedIsoUtc, raw);
 
-      // rating embedded?
       if (parsed.rating != null) {
         db.setRating(sessionId, parsed.rating);
       } else {
-        await promptRating(message).catch(() => {});
+        await promptRating(message);
       }
 
       await message.react("🌙").catch(() => {});
       return;
     }
 
-    // ---- GM ----
+    // GM
     if (parsed.kind === "GM") {
       const open = db.getOpenSession(userId);
+
       if (!open) {
-        await message.reply("I don’t see an open sleep session (no prior `gn`). If you meant to start one, send `gn`.").catch(() => {});
+        // Could be consecutive GM or a GM without a GN
+        const last = db.lastSession(userId);
+        if (last && last.status === "CLOSED") {
+          await promptConsecutiveGM(message);
+        } else {
+          await safeReply(message, "I don’t see an open session (no prior `gn`). Send `gn` first.");
+        }
         return;
       }
 
       const wakeIsoUtc = parsed.timeToken ? computeWakeUtcFromOverride(parsed.timeToken, open.bed_ts_utc) : nowIsoUtc;
       if (parsed.timeToken && !wakeIsoUtc) {
-        await message.reply("I couldn't parse that time. Try like `(9am)` or `(7:15)`").catch(() => {});
+        await safeReply(message, "I couldn't parse that time. Try `(9am)`, `(9:00 am)`, or `(21:15)`.");
         return;
       }
 
@@ -231,10 +367,10 @@ client.on("messageCreate", async (message) => {
       db.closeSession(open.id, wakeIsoUtc, mins);
       db.recordCheckin(userId, username, "GM", wakeIsoUtc, raw);
 
-      // If rating still missing, remind now (per your rules)
+      // If rating still missing for this session, remind on GM (per your rules)
       const needsRating = db.lastSessionNeedingRating(userId);
       if (needsRating && needsRating.id === open.id) {
-        await remindRatingOnGM(message).catch(() => {});
+        await remindRatingOnGM(message);
       }
 
       await message.react("☀️").catch(() => {});
@@ -242,41 +378,6 @@ client.on("messageCreate", async (message) => {
     }
   } catch (err) {
     console.error("Error:", err);
-  }
-});
-
-// Optional: export command: "!export"
-client.on("messageCreate", async (message) => {
-  try {
-    if (message.author.bot) return;
-    if (message.channelId !== SLEEP_CHANNEL_ID) return;
-
-    const raw = message.content.trim();
-    if (raw !== "!export") return;
-
-    if (ADMIN_USER_ID && message.author.id !== ADMIN_USER_ID) {
-      await message.reply("Not allowed.").catch(() => {});
-      return;
-    }
-
-    const rows = db.sessionsForExport();
-
-    const exportsDir = path.join(process.cwd(), "exports");
-    fs.mkdirSync(exportsDir, { recursive: true });
-
-    const outPath = path.join(exportsDir, "sleep_sessions.csv");
-    const header = ["user_id","username","bed_ts_utc","wake_ts_utc","sleep_minutes","rating_1_10","rating_status"];
-    const lines = [header.join(",")];
-
-    for (const r of rows) {
-      const vals = header.map((k) => (r[k] == null ? "" : String(r[k]).replaceAll('"', '""')));
-      lines.push(vals.map(v => `"${v}"`).join(","));
-    }
-
-    fs.writeFileSync(outPath, lines.join("\n"), "utf8");
-    await message.reply("Exported to `exports/sleep_sessions.csv` on the machine hosting the bot.").catch(() => {});
-  } catch (err) {
-    console.error("Export error:", err);
   }
 });
 
