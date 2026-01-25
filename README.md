@@ -109,4 +109,3 @@ Use a **Background Worker** with a **Persistent Disk** so SQLite survives restar
 
 * Tokens and secrets live only in `.env` / host environment variables
 * SQLite database is **not** committed to Git
-* Exports are sent via **DM** to the admin only
