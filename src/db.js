@@ -37,11 +37,14 @@ function initDb(dbPath) {
       ON sessions(user_id, bed_ts_utc);
 
     -- Guard table to prevent multiple !reset last from rolling back multiple points
+    -- NOTE: this now guards by checkin id (last action), not session id.
     CREATE TABLE IF NOT EXISTS reset_state (
       user_id TEXT PRIMARY KEY,
-      last_reset_session_id INTEGER
+      last_reset_checkin_id INTEGER
     );
   `);
+
+  // ---------------- Core statements ----------------
 
   const insertCheckin = db.prepare(`
     INSERT INTO checkins (user_id, username, kind, ts_utc, raw_content)
@@ -80,9 +83,24 @@ function initDb(dbPath) {
     WHERE id = ?
   `);
 
+  const reopenSession = db.prepare(`
+    UPDATE sessions
+    SET wake_ts_utc = NULL,
+        sleep_minutes = NULL,
+        status = 'OPEN'
+    WHERE id = ?
+  `);
+
   const setRating = db.prepare(`
     UPDATE sessions
     SET rating_1_10 = ?, rating_status = 'RECORDED'
+    WHERE id = ?
+  `);
+
+  const clearRating = db.prepare(`
+    UPDATE sessions
+    SET rating_1_10 = NULL,
+        rating_status = 'MISSING'
     WHERE id = ?
   `);
 
@@ -90,6 +108,10 @@ function initDb(dbPath) {
     UPDATE sessions
     SET rating_status = 'OMITTED'
     WHERE id = ?
+  `);
+
+  const deleteSessionById = db.prepare(`
+    DELETE FROM sessions WHERE id = ?
   `);
 
   const sessionsForExport = db.prepare(`
@@ -106,33 +128,37 @@ function initDb(dbPath) {
     ORDER BY bed_ts_utc ASC
   `);
 
-  // ----- Reset helpers -----
+  // ---------------- Reset helpers (checkin-level) ----------------
+
+  const lastCheckin = db.prepare(`
+    SELECT * FROM checkins
+    WHERE user_id = ?
+    ORDER BY id DESC
+    LIMIT 1
+  `);
+
+  const deleteCheckinById = db.prepare(`
+    DELETE FROM checkins WHERE id = ?
+  `);
+
   const getResetState = db.prepare(`
-    SELECT last_reset_session_id FROM reset_state WHERE user_id = ?
+    SELECT last_reset_checkin_id FROM reset_state WHERE user_id = ?
   `);
 
   const setResetState = db.prepare(`
-    INSERT INTO reset_state (user_id, last_reset_session_id)
+    INSERT INTO reset_state (user_id, last_reset_checkin_id)
     VALUES (?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET last_reset_session_id = excluded.last_reset_session_id
+    ON CONFLICT(user_id) DO UPDATE SET last_reset_checkin_id = excluded.last_reset_checkin_id
   `);
 
-  const deleteSessionById = db.prepare(`
-    DELETE FROM sessions WHERE id = ?
-  `);
-
-  const deleteCheckinsInRange = db.prepare(`
-    DELETE FROM checkins
-    WHERE user_id = ?
-      AND ts_utc >= ?
-      AND (? IS NULL OR ts_utc <= ?)
-  `);
+  // ---------------- Wipe all ----------------
 
   const wipeAllSessions = db.prepare(`DELETE FROM sessions`);
   const wipeAllCheckins = db.prepare(`DELETE FROM checkins`);
   const wipeResetState = db.prepare(`DELETE FROM reset_state`);
 
   return {
+    // ----- existing API -----
     recordCheckin(userId, username, kind, isoUtc, raw) {
       insertCheckin.run(userId, username, kind, isoUtc, raw);
     },
@@ -170,25 +196,39 @@ function initDb(dbPath) {
       return sessionsForExport.all();
     },
 
-    // Reset guard: prevents multiple !reset last from rolling back multiple points
-    getLastResetSessionId(userId) {
+    // ----- NEW API for “reset last entry” semantics -----
+
+    lastCheckin(userId) {
+      return lastCheckin.get(userId) || null;
+    },
+
+    getLastResetCheckinId(userId) {
       const row = getResetState.get(userId);
-      return row ? row.last_reset_session_id : null;
+      return row ? row.last_reset_checkin_id : null;
     },
 
-    setLastResetSessionId(userId, sessionId) {
-      setResetState.run(userId, sessionId);
+    setLastResetCheckinId(userId, checkinId) {
+      setResetState.run(userId, checkinId);
     },
 
-    // Delete one session and related checkins for that user in [bed, wake] range.
-    // If wake is null (OPEN session), delete checkins from bed onward.
-    deleteSessionAndCheckins(userId, sessionRow) {
-      db.transaction(() => {
-        deleteSessionById.run(sessionRow.id);
-        deleteCheckinsInRange.run(userId, sessionRow.bed_ts_utc, sessionRow.wake_ts_utc, sessionRow.wake_ts_utc);
-      })();
+    deleteCheckin(checkinId) {
+      deleteCheckinById.run(checkinId);
     },
 
+    // Undo helpers used by index.js
+    reopenSession(sessionId) {
+      reopenSession.run(sessionId);
+    },
+
+    deleteSession(sessionId) {
+      deleteSessionById.run(sessionId);
+    },
+
+    clearRating(sessionId) {
+      clearRating.run(sessionId);
+    },
+
+    // Keep your old “reset all” for admin
     wipeAll() {
       db.transaction(() => {
         wipeAllSessions.run();
