@@ -42,6 +42,20 @@ function initDb(dbPath) {
       user_id TEXT PRIMARY KEY,
       last_reset_checkin_id INTEGER
     );
+
+    -- Track pending GN checkins that were recorded but didn't create sessions
+    -- (when user says gn while another session is open)
+    CREATE TABLE IF NOT EXISTS pending_gn (
+      user_id TEXT NOT NULL,
+      checkin_id INTEGER NOT NULL,
+      bed_ts_utc TEXT NOT NULL,
+      raw_content TEXT NOT NULL,
+      created_at_utc TEXT NOT NULL,
+      PRIMARY KEY (user_id, checkin_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pending_gn_time
+      ON pending_gn(created_at_utc);
   `);
 
   // ---------------- Core statements ----------------
@@ -56,6 +70,12 @@ function initDb(dbPath) {
     WHERE user_id = ? AND status = 'OPEN'
     ORDER BY id DESC
     LIMIT 1
+  `);
+
+  const getAllOpenSessions = db.prepare(`
+    SELECT * FROM sessions
+    WHERE user_id = ? AND status = 'OPEN'
+    ORDER BY id DESC
   `);
 
   const lastSession = db.prepare(`
@@ -141,6 +161,10 @@ function initDb(dbPath) {
     DELETE FROM checkins WHERE id = ?
   `);
 
+  const getCheckinById = db.prepare(`
+    SELECT * FROM checkins WHERE id = ?
+  `);
+
   const getResetState = db.prepare(`
     SELECT last_reset_checkin_id FROM reset_state WHERE user_id = ?
   `);
@@ -151,20 +175,49 @@ function initDb(dbPath) {
     ON CONFLICT(user_id) DO UPDATE SET last_reset_checkin_id = excluded.last_reset_checkin_id
   `);
 
+  // ---------------- Pending GN helpers ----------------
+
+  const insertPendingGN = db.prepare(`
+    INSERT INTO pending_gn (user_id, checkin_id, bed_ts_utc, raw_content, created_at_utc)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const getPendingGN = db.prepare(`
+    SELECT * FROM pending_gn
+    WHERE user_id = ?
+    ORDER BY created_at_utc DESC
+    LIMIT 1
+  `);
+
+  const deletePendingGN = db.prepare(`
+    DELETE FROM pending_gn WHERE user_id = ? AND checkin_id = ?
+  `);
+
+  const getPendingGNsOlderThan = db.prepare(`
+    SELECT * FROM pending_gn
+    WHERE created_at_utc < ?
+  `);
+
   // ---------------- Wipe all ----------------
 
   const wipeAllSessions = db.prepare(`DELETE FROM sessions`);
   const wipeAllCheckins = db.prepare(`DELETE FROM checkins`);
   const wipeResetState = db.prepare(`DELETE FROM reset_state`);
+  const wipePendingGN = db.prepare(`DELETE FROM pending_gn`);
 
   return {
     // ----- existing API -----
     recordCheckin(userId, username, kind, isoUtc, raw) {
-      insertCheckin.run(userId, username, kind, isoUtc, raw);
+      const info = insertCheckin.run(userId, username, kind, isoUtc, raw);
+      return Number(info.lastInsertRowid);
     },
 
     getOpenSession(userId) {
       return getOpenSession.get(userId) || null;
+    },
+
+    getAllOpenSessions(userId) {
+      return getAllOpenSessions.all(userId) || [];
     },
 
     lastSession(userId) {
@@ -215,6 +268,10 @@ function initDb(dbPath) {
       deleteCheckinById.run(checkinId);
     },
 
+    getCheckinById(checkinId) {
+      return getCheckinById.get(checkinId) || null;
+    },
+
     // Undo helpers used by index.js
     reopenSession(sessionId) {
       reopenSession.run(sessionId);
@@ -228,12 +285,31 @@ function initDb(dbPath) {
       clearRating.run(sessionId);
     },
 
-    // Keep your old “reset all” for admin
+    // ----- Pending GN API -----
+
+    addPendingGN(userId, checkinId, bedIsoUtc, rawContent, createdAtUtc) {
+      insertPendingGN.run(userId, checkinId, bedIsoUtc, rawContent, createdAtUtc);
+    },
+
+    getPendingGN(userId) {
+      return getPendingGN.get(userId) || null;
+    },
+
+    deletePendingGN(userId, checkinId) {
+      deletePendingGN.run(userId, checkinId);
+    },
+
+    getPendingGNsOlderThan(isoUtc) {
+      return getPendingGNsOlderThan.all(isoUtc) || [];
+    },
+
+    // Keep your old "reset all" for admin
     wipeAll() {
       db.transaction(() => {
         wipeAllSessions.run();
         wipeAllCheckins.run();
         wipeResetState.run();
+        wipePendingGN.run();
       })();
     },
 

@@ -15,7 +15,7 @@ async function promptRating(message) {
 async function promptMissingGM(message) {
   await safeReply(
     message,
-    "I saw two `gn` in a row. If you forgot a good morning, you can log it retroactively like: `gm (9am)`"
+    "Looks like you have two `gn` in a row. Please update the existing session with `gm (time)`, then redo your current `gn`. If you do not do this within an hour, your old session will be skipped."
   );
 }
 

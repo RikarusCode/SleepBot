@@ -5,7 +5,7 @@ const { initDb } = require("./db");
 const { parseMessage } = require("./parse");
 const { handleExport } = require("./commands/export");
 const { handleReset } = require("./commands/reset");
-const { handleRatingOnly, handleGN, handleGM } = require("./handlers/checkin");
+const { handleRatingOnly, handleGN, handleGM, processPendingGNs } = require("./handlers/checkin");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const SLEEP_CHANNEL_ID = process.env.SLEEP_CHANNEL_ID;
@@ -32,6 +32,9 @@ client.on("messageCreate", async (message) => {
   try {
     if (message.author.bot) return;
     if (message.channelId !== SLEEP_CHANNEL_ID) return;
+
+    // Process any pending GNs that are now 1+ hours old
+    processPendingGNs(db, DEFAULT_TZ);
 
     const userId = message.author.id;
     const username = message.author.username;
