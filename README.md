@@ -72,7 +72,8 @@ Every Monday, the bot automatically sends a weekly summary to the sleep channel 
 
 ### Data Management
 
-* `!reset last` - Undo your most recent entry (safe; prevents multiple rollbacks)
+* `!reset last` - Undo your most recent entry (shows what was reset; prevents multiple rollbacks)
+* `!undo` - Undo the last reset operation (restores the deleted entry)
 * `!reset all` - Wipe all data (admin only, requires `ADMIN_USER_ID` in environment)
 
 ---
@@ -99,6 +100,7 @@ Every Monday, the bot automatically sends a weekly summary to the sleep channel 
 |---------|-------------|--------|
 | `!export` | Export all completed sessions to CSV | Anyone |
 | `!reset last` | Undo your most recent entry | Anyone |
+| `!undo` | Undo the last reset operation | Anyone |
 | `!reset all` | Wipe all data | Admin only |
 
 ---
@@ -149,6 +151,20 @@ Tracks good night checkins that were recorded but didn't create sessions (when u
 Tracks when weekly summaries were last sent to avoid duplicates:
 
 * `last_summary_date` - Date (YYYY-MM-DD format) of the last summary sent
+
+### Undo State Table
+
+Stores data for undo operations (temporary storage):
+
+* `user_id` - Discord user ID (primary key)
+* `checkin_id` - ID of the checkin that was reset
+* `checkin_kind` - Type of checkin (`GN`, `GM`, or `RATING`)
+* `checkin_ts_utc` - Timestamp of the checkin
+* `checkin_raw_content` - Original message content
+* `checkin_username` - Username at time of checkin
+* `session_id` - Related session ID (if applicable)
+* `session_data` - JSON string of session state before reset
+* `undo_type` - Type of undo operation (`GN`, `GM`, `RATING_EVENING`, `RATING_MORNING`)
 
 ---
 

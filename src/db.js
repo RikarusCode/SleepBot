@@ -99,6 +99,25 @@ function initDb(dbPath) {
     // Table might not exist yet, that's okay
   }
 
+  // Migration: Create undo_state table if it doesn't exist
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS undo_state (
+        user_id TEXT PRIMARY KEY,
+        checkin_id INTEGER,
+        checkin_kind TEXT,
+        checkin_ts_utc TEXT,
+        checkin_raw_content TEXT,
+        checkin_username TEXT,
+        session_id INTEGER,
+        session_data TEXT,
+        undo_type TEXT
+      );
+    `);
+  } catch (err) {
+    // Ignore if already exists
+  }
+
   db.exec(`
     -- Guard table to prevent multiple !reset last from rolling back multiple points
     -- NOTE: this now guards by checkin id (last action), not session id.
@@ -125,6 +144,19 @@ function initDb(dbPath) {
     -- Track when weekly summaries were last sent (to avoid duplicates)
     CREATE TABLE IF NOT EXISTS weekly_summary_state (
       last_summary_date TEXT PRIMARY KEY
+    );
+
+    -- Store undo data for reset operations
+    CREATE TABLE IF NOT EXISTS undo_state (
+      user_id TEXT PRIMARY KEY,
+      checkin_id INTEGER,
+      checkin_kind TEXT,
+      checkin_ts_utc TEXT,
+      checkin_raw_content TEXT,
+      checkin_username TEXT,
+      session_id INTEGER,
+      session_data TEXT,
+      undo_type TEXT
     );
   `);
 
@@ -312,11 +344,39 @@ function initDb(dbPath) {
     ON CONFLICT(last_summary_date) DO UPDATE SET last_summary_date = excluded.last_summary_date
   `);
 
+  const saveUndoState = db.prepare(`
+    INSERT INTO undo_state (user_id, checkin_id, checkin_kind, checkin_ts_utc, checkin_raw_content, checkin_username, session_id, session_data, undo_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      checkin_id = excluded.checkin_id,
+      checkin_kind = excluded.checkin_kind,
+      checkin_ts_utc = excluded.checkin_ts_utc,
+      checkin_raw_content = excluded.checkin_raw_content,
+      checkin_username = excluded.checkin_username,
+      session_id = excluded.session_id,
+      session_data = excluded.session_data,
+      undo_type = excluded.undo_type
+  `);
+
+  const getUndoState = db.prepare(`
+    SELECT * FROM undo_state WHERE user_id = ?
+  `);
+
+  const deleteUndoState = db.prepare(`
+    DELETE FROM undo_state WHERE user_id = ?
+  `);
+
+  const restoreCheckin = db.prepare(`
+    INSERT INTO checkins (id, user_id, username, kind, ts_utc, raw_content)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
   const wipeAllSessions = db.prepare(`DELETE FROM sessions`);
   const wipeAllCheckins = db.prepare(`DELETE FROM checkins`);
   const wipeResetState = db.prepare(`DELETE FROM reset_state`);
   const wipePendingGN = db.prepare(`DELETE FROM pending_gn`);
   const wipeWeeklySummaryState = db.prepare(`DELETE FROM weekly_summary_state`);
+  const wipeUndoState = db.prepare(`DELETE FROM undo_state`);
 
   return {
     // ----- existing API -----
@@ -447,6 +507,7 @@ function initDb(dbPath) {
         wipeResetState.run();
         wipePendingGN.run();
         wipeWeeklySummaryState.run();
+        wipeUndoState.run();
       })();
     },
 

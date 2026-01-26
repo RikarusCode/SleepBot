@@ -5,6 +5,7 @@ const { initDb } = require("./db");
 const { parseMessage } = require("./parse");
 const { handleExport } = require("./commands/export");
 const { handleReset } = require("./commands/reset");
+const { handleUndo } = require("./commands/undo");
 const { generateWeeklySummary } = require("./commands/summary");
 const { handleRatingOnly, handleGN, handleGM, processPendingGNs } = require("./handlers/checkin");
 const { DateTime } = require("luxon");
@@ -90,6 +91,12 @@ client.on("messageCreate", async (message) => {
     // Reset commands
     if (raw.trim().startsWith("!reset")) {
       await handleReset(message, raw, db, ADMIN_USER_ID);
+      return;
+    }
+
+    // Undo command
+    if (raw.trim() === "!undo") {
+      await handleUndo(message, db);
       return;
     }
 
