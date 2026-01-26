@@ -99,23 +99,57 @@ function initDb(dbPath) {
     // Table might not exist yet, that's okay
   }
 
-  // Migration: Create undo_state table if it doesn't exist
+  // Migration: Create undo_state table if it doesn't exist, or migrate old structure
   try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS undo_state (
-        user_id TEXT PRIMARY KEY,
-        checkin_id INTEGER,
-        checkin_kind TEXT,
-        checkin_ts_utc TEXT,
-        checkin_raw_content TEXT,
-        checkin_username TEXT,
-        session_id INTEGER,
-        session_data TEXT,
-        undo_type TEXT
-      );
-    `);
+    // Check if table exists and has old structure (user_id as primary key)
+    const tableInfo = db.pragma(`table_info(undo_state)`);
+    if (tableInfo.length === 0) {
+      // Table doesn't exist, create new structure
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS undo_state (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          checkin_id INTEGER,
+          checkin_kind TEXT,
+          checkin_ts_utc TEXT,
+          checkin_raw_content TEXT,
+          checkin_username TEXT,
+          session_id INTEGER,
+          session_data TEXT,
+          undo_type TEXT,
+          created_at_utc TEXT DEFAULT (datetime('now')),
+          UNIQUE(user_id, checkin_id)
+        );
+      `);
+    } else {
+      // Table exists, check if it needs migration
+      const hasIdColumn = tableInfo.some(col => col.name === 'id');
+      if (!hasIdColumn) {
+        // Migrate from old structure to new
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS undo_state_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            checkin_id INTEGER,
+            checkin_kind TEXT,
+            checkin_ts_utc TEXT,
+            checkin_raw_content TEXT,
+            checkin_username TEXT,
+            session_id INTEGER,
+            session_data TEXT,
+            undo_type TEXT,
+            created_at_utc TEXT DEFAULT (datetime('now')),
+            UNIQUE(user_id, checkin_id)
+          );
+        `);
+        db.exec(`INSERT INTO undo_state_new SELECT NULL, user_id, checkin_id, checkin_kind, checkin_ts_utc, checkin_raw_content, checkin_username, session_id, session_data, undo_type, datetime('now') FROM undo_state;`);
+        db.exec(`DROP TABLE undo_state;`);
+        db.exec(`ALTER TABLE undo_state_new RENAME TO undo_state;`);
+      }
+    }
   } catch (err) {
-    // Ignore if already exists
+    // Ignore if already exists or migration fails
+    console.error("Error migrating undo_state table:", err);
   }
 
   db.exec(`
@@ -146,9 +180,10 @@ function initDb(dbPath) {
       last_summary_date TEXT PRIMARY KEY
     );
 
-    -- Store undo data for reset operations
+    -- Store undo data for reset operations (stack-based, multiple per user)
     CREATE TABLE IF NOT EXISTS undo_state (
-      user_id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
       checkin_id INTEGER,
       checkin_kind TEXT,
       checkin_ts_utc TEXT,
@@ -156,7 +191,9 @@ function initDb(dbPath) {
       checkin_username TEXT,
       session_id INTEGER,
       session_data TEXT,
-      undo_type TEXT
+      undo_type TEXT,
+      created_at_utc TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, checkin_id)
     );
   `);
 
@@ -345,24 +382,37 @@ function initDb(dbPath) {
   `);
 
   const saveUndoState = db.prepare(`
-    INSERT INTO undo_state (user_id, checkin_id, checkin_kind, checkin_ts_utc, checkin_raw_content, checkin_username, session_id, session_data, undo_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET
-      checkin_id = excluded.checkin_id,
+    INSERT INTO undo_state (user_id, checkin_id, checkin_kind, checkin_ts_utc, checkin_raw_content, checkin_username, session_id, session_data, undo_type, created_at_utc)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id, checkin_id) DO UPDATE SET
       checkin_kind = excluded.checkin_kind,
       checkin_ts_utc = excluded.checkin_ts_utc,
       checkin_raw_content = excluded.checkin_raw_content,
       checkin_username = excluded.checkin_username,
       session_id = excluded.session_id,
       session_data = excluded.session_data,
-      undo_type = excluded.undo_type
+      undo_type = excluded.undo_type,
+      created_at_utc = datetime('now')
   `);
 
-  const getUndoState = db.prepare(`
-    SELECT * FROM undo_state WHERE user_id = ?
+  const getLatestUndoState = db.prepare(`
+    SELECT * FROM undo_state 
+    WHERE user_id = ?
+    ORDER BY created_at_utc DESC, id DESC
+    LIMIT 1
+  `);
+
+  const getAllUndoStates = db.prepare(`
+    SELECT * FROM undo_state 
+    WHERE user_id = ?
+    ORDER BY created_at_utc DESC, id DESC
   `);
 
   const deleteUndoState = db.prepare(`
+    DELETE FROM undo_state WHERE id = ?
+  `);
+
+  const deleteAllUndoStates = db.prepare(`
     DELETE FROM undo_state WHERE user_id = ?
   `);
 
@@ -497,6 +547,39 @@ function initDb(dbPath) {
 
     setLastSummaryDate(dateIso) {
       setLastSummaryDate.run(dateIso);
+    },
+
+    // ----- Undo API -----
+
+    saveUndoState(userId, checkinId, checkinKind, checkinTsUtc, checkinRawContent, checkinUsername, sessionId, sessionData, undoType) {
+      saveUndoState.run(userId, checkinId, checkinKind, checkinTsUtc, checkinRawContent, checkinUsername, sessionId || null, sessionData || null, undoType);
+    },
+
+    getUndoState(userId) {
+      return getLatestUndoState.get(userId) || null;
+    },
+
+    getAllUndoStates(userId) {
+      return getAllUndoStates.all(userId) || [];
+    },
+
+    deleteUndoState(undoStateId) {
+      deleteUndoState.run(undoStateId);
+    },
+
+    deleteAllUndoStates(userId) {
+      deleteAllUndoStates.run(userId);
+    },
+
+    restoreCheckin(checkinId, userId, username, kind, tsUtc, rawContent) {
+      try {
+        restoreCheckin.run(checkinId, userId, username, kind, tsUtc, rawContent);
+        return true;
+      } catch (err) {
+        // Checkin might already exist, try without ID
+        insertCheckin.run(userId, username, kind, tsUtc, rawContent);
+        return false;
+      }
     },
 
     // Keep your old "reset all" for admin

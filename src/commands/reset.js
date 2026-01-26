@@ -23,14 +23,8 @@ async function handleReset(message, raw, db, adminUserId) {
       return;
     }
   
-    const alreadyReset = db.getLastResetCheckinId(message.author.id);
-    if (alreadyReset && Number(alreadyReset) === Number(last.id)) {
-      await safeReply(
-        message,
-        "I already reset your most recent entry. I won't roll back further."
-      );
-      return;
-    }
+    // Allow multiple resets - each one adds to the undo stack
+    // No longer blocking multiple resets in a row
   
     // Save undo state before making changes
     let sessionData = null;
@@ -112,14 +106,14 @@ async function handleReset(message, raw, db, adminUserId) {
       }
     }
   
-    // Save undo state
+    // Save undo state (even if sessionId/sessionData is null)
     db.saveUndoState(
       message.author.id,
       last.id,
       last.kind,
       last.ts_utc,
-      last.raw_content,
-      last.username,
+      last.raw_content || "",
+      last.username || message.author.username,
       sessionId,
       sessionData,
       undoType || last.kind
@@ -128,7 +122,9 @@ async function handleReset(message, raw, db, adminUserId) {
     db.deleteCheckin(last.id);
     db.setLastResetCheckinId(message.author.id, last.id);
   
-    await safeReply(message, `♻️ Reset your last entry: \`${last.raw_content}\``);
+    const resetMessage = `♻️ Reset your last entry: \`${last.raw_content || "unknown"}\``;
+    console.log(`[RESET] User ${message.author.id} reset: ${last.raw_content}`);
+    await safeReply(message, resetMessage);
     await message.react("♻️").catch(() => {});
     return;
   }

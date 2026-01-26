@@ -60,10 +60,16 @@ async function handleUndo(message, db) {
     }
   }
 
-  // Clear undo state
-  db.deleteUndoState(message.author.id);
+  // Remove this undo state from the stack (but keep others for multiple undos)
+  db.deleteUndoState(undoState.id);
 
-  await safeReply(message, `✅ Re-added: \`${undoState.checkin_raw_content}\``);
+  // Check if there are more undos available
+  const remainingUndos = db.getAllUndoStates(message.author.id);
+  const hasMore = remainingUndos.length > 0;
+
+  const undoMessage = `✅ Re-added: \`${undoState.checkin_raw_content || "unknown"}\`${hasMore ? " (more undos available)" : ""}`;
+  console.log(`[UNDO] User ${message.author.id} undid: ${undoState.checkin_raw_content}`);
+  await safeReply(message, undoMessage);
   await message.react("✅").catch(() => {});
 }
 

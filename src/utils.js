@@ -3,8 +3,14 @@
 async function safeReply(message, text) {
   try {
     await message.reply(text);
-  } catch {
+  } catch (err) {
     // If Send Messages is missing, replies will fail—no crash.
+    // Try sending to channel as fallback
+    try {
+      await message.channel.send(text);
+    } catch (err2) {
+      console.error("Failed to send message:", err2.message);
+    }
   }
 }
 

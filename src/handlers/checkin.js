@@ -28,6 +28,8 @@ async function handleRatingOnly(message, parsed, userId, username, raw, db) {
     const nowIsoUtc = new Date().toISOString();
     db.setMorningRating(needsMorningRating.id, parsed.rating);
     db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
+    // Clear undo stack when new checkin is made
+    db.deleteAllUndoStates(userId);
     await message.react("✅").catch(() => {});
     return;
   }
@@ -41,6 +43,8 @@ async function handleRatingOnly(message, parsed, userId, username, raw, db) {
   const nowIsoUtc = new Date().toISOString();
   db.setRating(target.id, parsed.rating);
   db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
+  // Clear undo stack when new checkin is made
+  db.deleteAllUndoStates(userId);
   await message.react("✅").catch(() => {});
 }
 
@@ -100,6 +104,8 @@ async function handleGN(message, parsed, userId, username, raw, db, defaultTz) {
   // No open session - create session normally
   const sessionId = db.createSession(userId, username, bedIsoUtc, parsed.note);
   db.recordCheckin(userId, username, "GN", bedIsoUtc, raw);
+  // Clear undo stack when new checkin is made
+  db.deleteAllUndoStates(userId);
 
   if (parsed.rating != null) {
     db.setRating(sessionId, parsed.rating);
@@ -171,6 +177,8 @@ async function handleGM(message, parsed, userId, username, raw, db, defaultTz) {
   const mins = minutesBetween(targetSession.bed_ts_utc, wakeIsoUtc);
   db.closeSession(targetSession.id, wakeIsoUtc, mins, parsed.rating || null, parsed.note || null);
   db.recordCheckin(userId, username, "GM", wakeIsoUtc, raw);
+  // Clear undo stack when new checkin is made
+  db.deleteAllUndoStates(userId);
 
   // Delete any other open sessions that are older than the one we just completed
   for (const session of allOpen) {
