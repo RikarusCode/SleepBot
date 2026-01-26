@@ -27,7 +27,8 @@ function initDb(dbPath) {
       sleep_minutes INTEGER,
       rating_1_10 INTEGER,
       rating_status TEXT NOT NULL CHECK(rating_status IN ('MISSING','RECORDED','OMITTED')),
-      status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSED'))
+      status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSED')),
+      note TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_user_status
@@ -36,6 +37,34 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_sessions_user_time
       ON sessions(user_id, bed_ts_utc);
 
+    -- Add note column if it doesn't exist (migration for existing databases)
+    -- SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we check first
+    -- Using a pragma to check if column exists
+  `);
+
+  // Migration: Add note column to sessions table if it doesn't exist
+  try {
+    const tableInfo = db.pragma(`table_info(sessions)`);
+    const hasNoteColumn = tableInfo.some(col => col.name === 'note');
+    if (!hasNoteColumn) {
+      db.exec(`ALTER TABLE sessions ADD COLUMN note TEXT`);
+    }
+  } catch (err) {
+    // Table might not exist yet, that's okay
+  }
+
+  // Migration: Add note column to pending_gn table if it doesn't exist
+  try {
+    const tableInfo = db.pragma(`table_info(pending_gn)`);
+    const hasNoteColumn = tableInfo.some(col => col.name === 'note');
+    if (!hasNoteColumn) {
+      db.exec(`ALTER TABLE pending_gn ADD COLUMN note TEXT`);
+    }
+  } catch (err) {
+    // Table might not exist yet, that's okay
+  }
+
+  db.exec(`
     -- Guard table to prevent multiple !reset last from rolling back multiple points
     -- NOTE: this now guards by checkin id (last action), not session id.
     CREATE TABLE IF NOT EXISTS reset_state (
@@ -51,6 +80,7 @@ function initDb(dbPath) {
       bed_ts_utc TEXT NOT NULL,
       raw_content TEXT NOT NULL,
       created_at_utc TEXT NOT NULL,
+      note TEXT,
       PRIMARY KEY (user_id, checkin_id)
     );
 
@@ -93,8 +123,8 @@ function initDb(dbPath) {
   `);
 
   const createSession = db.prepare(`
-    INSERT INTO sessions (user_id, username, bed_ts_utc, rating_status, status)
-    VALUES (?, ?, ?, 'MISSING', 'OPEN')
+    INSERT INTO sessions (user_id, username, bed_ts_utc, rating_status, status, note)
+    VALUES (?, ?, ?, 'MISSING', 'OPEN', ?)
   `);
 
   const closeSession = db.prepare(`
@@ -142,7 +172,8 @@ function initDb(dbPath) {
       wake_ts_utc,
       sleep_minutes,
       rating_1_10,
-      rating_status
+      rating_status,
+      note
     FROM sessions
     WHERE status = 'CLOSED'
     ORDER BY bed_ts_utc ASC
@@ -178,8 +209,8 @@ function initDb(dbPath) {
   // ---------------- Pending GN helpers ----------------
 
   const insertPendingGN = db.prepare(`
-    INSERT INTO pending_gn (user_id, checkin_id, bed_ts_utc, raw_content, created_at_utc)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO pending_gn (user_id, checkin_id, bed_ts_utc, raw_content, created_at_utc, note)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const getPendingGN = db.prepare(`
@@ -228,8 +259,8 @@ function initDb(dbPath) {
       return lastSessionNeedingRating.get(userId) || null;
     },
 
-    createSession(userId, username, bedIsoUtc) {
-      const info = createSession.run(userId, username, bedIsoUtc);
+    createSession(userId, username, bedIsoUtc, note) {
+      const info = createSession.run(userId, username, bedIsoUtc, note || null);
       return Number(info.lastInsertRowid);
     },
 
@@ -287,8 +318,8 @@ function initDb(dbPath) {
 
     // ----- Pending GN API -----
 
-    addPendingGN(userId, checkinId, bedIsoUtc, rawContent, createdAtUtc) {
-      insertPendingGN.run(userId, checkinId, bedIsoUtc, rawContent, createdAtUtc);
+    addPendingGN(userId, checkinId, bedIsoUtc, rawContent, createdAtUtc, note) {
+      insertPendingGN.run(userId, checkinId, bedIsoUtc, rawContent, createdAtUtc, note || null);
     },
 
     getPendingGN(userId) {

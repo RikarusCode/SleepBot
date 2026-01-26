@@ -58,7 +58,7 @@ async function handleGN(message, parsed, userId, username, raw, db, defaultTz) {
     }
     
     const checkinId = db.recordCheckin(userId, username, "GN", bedIsoUtc, raw);
-    db.addPendingGN(userId, checkinId, bedIsoUtc, raw, nowIsoUtc);
+    db.addPendingGN(userId, checkinId, bedIsoUtc, raw, nowIsoUtc, parsed.note);
     
     // Don't react with emoji - "secretly" record it
     // Prompt user to fix the previous session
@@ -72,7 +72,7 @@ async function handleGN(message, parsed, userId, username, raw, db, defaultTz) {
   if (pending) {
     // Delete the pending GN and create session from it
     db.deletePendingGN(userId, pending.checkin_id);
-    const sessionId = db.createSession(userId, username, pending.bed_ts_utc);
+    const sessionId = db.createSession(userId, username, pending.bed_ts_utc, pending.note);
     
     if (parsed.rating != null) {
       db.setRating(sessionId, parsed.rating);
@@ -85,7 +85,7 @@ async function handleGN(message, parsed, userId, username, raw, db, defaultTz) {
   }
 
   // No open session - create session normally
-  const sessionId = db.createSession(userId, username, bedIsoUtc);
+  const sessionId = db.createSession(userId, username, bedIsoUtc, parsed.note);
   db.recordCheckin(userId, username, "GN", bedIsoUtc, raw);
 
   if (parsed.rating != null) {
@@ -207,7 +207,7 @@ function processPendingGNs(db, defaultTz) {
     }
     
     // Create session from the pending GN
-    const sessionId = db.createSession(pending.user_id, checkin.username, pending.bed_ts_utc);
+    const sessionId = db.createSession(pending.user_id, checkin.username, pending.bed_ts_utc, pending.note);
     
     // Delete the pending GN record
     db.deletePendingGN(pending.user_id, pending.checkin_id);

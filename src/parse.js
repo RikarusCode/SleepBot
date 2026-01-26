@@ -114,18 +114,30 @@ function minutesBetween(isoUtcA, isoUtcB) {
 // Parse:
 // - rating only: "!5"
 // - commands: "gn (11pm) !8", "gn !5", "gm (9am)", "good morning (9:00 am)"
+// - with notes: "gn !5 (9pm) \"pset grinding\"", "gn \"pset grinding\" !5 (9pm)"
 function parseMessage(raw) {
   const trimmed = raw.trim();
 
   const ratingOnly = trimmed.match(/^!\s*([1-9]|10)\s*$/);
   if (ratingOnly) return { kind: "RATING_ONLY", rating: Number(ratingOnly[1]) };
 
+  // Extract quoted note first (can be anywhere after the command)
+  let note = null;
+  let withoutNote = trimmed;
+  const noteMatch = trimmed.match(/"([^"]*)"/);
+  if (noteMatch) {
+    note = noteMatch[1].trim();
+    // Remove the quoted text from the string
+    withoutNote = trimmed.slice(0, noteMatch.index) + trimmed.slice(noteMatch.index + noteMatch[0].length);
+    withoutNote = withoutNote.trim();
+  }
+
   let rating = null;
-  const ratingMatch = trimmed.match(/!\s*([1-9]|10)\s*$/);
-  let withoutRating = trimmed;
+  const ratingMatch = withoutNote.match(/!\s*([1-9]|10)\s*$/);
+  let withoutRating = withoutNote;
   if (ratingMatch) {
     rating = Number(ratingMatch[1]);
-    withoutRating = trimmed.slice(0, ratingMatch.index).trim();
+    withoutRating = withoutNote.slice(0, ratingMatch.index).trim();
   }
 
   let timeToken = null;
@@ -137,7 +149,7 @@ function parseMessage(raw) {
   }
 
   const cmd = normalize(commandPart);
-  if (GOODNIGHT.has(cmd)) return { kind: "GN", timeToken, rating };
+  if (GOODNIGHT.has(cmd)) return { kind: "GN", timeToken, rating, note };
   if (GOODMORNING.has(cmd)) return { kind: "GM", timeToken, rating };
   return { kind: "UNKNOWN" };
 }
