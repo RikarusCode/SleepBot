@@ -64,6 +64,17 @@ function initDb(dbPath) {
     // Table might not exist yet, that's okay
   }
 
+  // Migration: Create weekly_summary_state table if it doesn't exist
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS weekly_summary_state (
+        last_summary_date TEXT PRIMARY KEY
+      );
+    `);
+  } catch (err) {
+    // Ignore if already exists
+  }
+
   db.exec(`
     -- Guard table to prevent multiple !reset last from rolling back multiple points
     -- NOTE: this now guards by checkin id (last action), not session id.
@@ -86,6 +97,11 @@ function initDb(dbPath) {
 
     CREATE INDEX IF NOT EXISTS idx_pending_gn_time
       ON pending_gn(created_at_utc);
+
+    -- Track when weekly summaries were last sent (to avoid duplicates)
+    CREATE TABLE IF NOT EXISTS weekly_summary_state (
+      last_summary_date TEXT PRIMARY KEY
+    );
   `);
 
   // ---------------- Core statements ----------------
@@ -179,6 +195,22 @@ function initDb(dbPath) {
     ORDER BY bed_ts_utc ASC
   `);
 
+  const sessionsForWeeklySummary = db.prepare(`
+    SELECT
+      user_id,
+      username,
+      bed_ts_utc,
+      wake_ts_utc,
+      sleep_minutes,
+      rating_1_10,
+      note
+    FROM sessions
+    WHERE status = 'CLOSED'
+      AND bed_ts_utc >= ?
+      AND bed_ts_utc < ?
+    ORDER BY sleep_minutes ASC
+  `);
+
   // ---------------- Reset helpers (checkin-level) ----------------
 
   const lastCheckin = db.prepare(`
@@ -231,10 +263,21 @@ function initDb(dbPath) {
 
   // ---------------- Wipe all ----------------
 
+  const getLastSummaryDate = db.prepare(`
+    SELECT last_summary_date FROM weekly_summary_state LIMIT 1
+  `);
+
+  const setLastSummaryDate = db.prepare(`
+    INSERT INTO weekly_summary_state (last_summary_date)
+    VALUES (?)
+    ON CONFLICT(last_summary_date) DO UPDATE SET last_summary_date = excluded.last_summary_date
+  `);
+
   const wipeAllSessions = db.prepare(`DELETE FROM sessions`);
   const wipeAllCheckins = db.prepare(`DELETE FROM checkins`);
   const wipeResetState = db.prepare(`DELETE FROM reset_state`);
   const wipePendingGN = db.prepare(`DELETE FROM pending_gn`);
+  const wipeWeeklySummaryState = db.prepare(`DELETE FROM weekly_summary_state`);
 
   return {
     // ----- existing API -----
@@ -278,6 +321,10 @@ function initDb(dbPath) {
 
     sessionsForExport() {
       return sessionsForExport.all();
+    },
+
+    sessionsForWeeklySummary(startDateIso, endDateIso) {
+      return sessionsForWeeklySummary.all(startDateIso, endDateIso);
     },
 
     // ----- NEW API for “reset last entry” semantics -----
@@ -334,6 +381,17 @@ function initDb(dbPath) {
       return getPendingGNsOlderThan.all(isoUtc) || [];
     },
 
+    // ----- Weekly Summary API -----
+
+    getLastSummaryDate() {
+      const row = getLastSummaryDate.get();
+      return row ? row.last_summary_date : null;
+    },
+
+    setLastSummaryDate(dateIso) {
+      setLastSummaryDate.run(dateIso);
+    },
+
     // Keep your old "reset all" for admin
     wipeAll() {
       db.transaction(() => {
@@ -341,6 +399,7 @@ function initDb(dbPath) {
         wipeAllCheckins.run();
         wipeResetState.run();
         wipePendingGN.run();
+        wipeWeeklySummaryState.run();
       })();
     },
 

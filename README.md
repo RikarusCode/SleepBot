@@ -47,6 +47,16 @@ The bot intelligently handles common edge cases:
 
 * **Retroactive Completion**: Use `gm (time)` with a past time to retroactively complete a previous session.
 
+### Weekly Summaries
+
+Every Monday, the bot automatically sends a weekly summary to the sleep channel with:
+
+* Total number of sleep sessions
+* Average hours slept
+* Longest and shortest sleep sessions
+* Average energy rating
+* List of contributors
+
 ### Data Export
 
 * `!export` - Receive a CSV file via DM containing all completed sleep sessions
@@ -121,6 +131,12 @@ Tracks good night checkins that were recorded but didn't create sessions (when u
 * `raw_content` - Original message content
 * `created_at_utc` - When the pending GN was created
 * `note` - Optional note from the command
+
+### Weekly Summary State Table
+
+Tracks when weekly summaries were last sent to avoid duplicates:
+
+* `last_summary_date` - Date (YYYY-MM-DD format) of the last summary sent
 
 ---
 
@@ -215,12 +231,13 @@ Any Node.js hosting platform that supports:
 
 The codebase is organized into modular components:
 
-* `src/index.js` - Main entry point, Discord client setup, message routing
+* `src/index.js` - Main entry point, Discord client setup, message routing, weekly summary scheduling
 * `src/parse.js` - Message parsing and time computation logic
 * `src/db.js` - Database initialization and SQLite operations
 * `src/handlers/checkin.js` - Check-in handling logic (GN, GM, ratings)
 * `src/commands/export.js` - CSV export functionality
 * `src/commands/reset.js` - Data reset commands
+* `src/commands/summary.js` - Weekly summary generation and formatting
 * `src/utils.js` - Utility functions and user prompts
 
 ---
@@ -229,8 +246,3 @@ The codebase is organized into modular components:
 
 ISC
 
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.

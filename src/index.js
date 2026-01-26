@@ -5,7 +5,9 @@ const { initDb } = require("./db");
 const { parseMessage } = require("./parse");
 const { handleExport } = require("./commands/export");
 const { handleReset } = require("./commands/reset");
+const { generateWeeklySummary } = require("./commands/summary");
 const { handleRatingOnly, handleGN, handleGM, processPendingGNs } = require("./handlers/checkin");
+const { DateTime } = require("luxon");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const SLEEP_CHANNEL_ID = process.env.SLEEP_CHANNEL_ID;
@@ -22,11 +24,50 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-client.once("ready", () => {
+client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   console.log(`Watching channel ${SLEEP_CHANNEL_ID} tz=${DEFAULT_TZ}`);
   console.log(`DB: ${DB_PATH}`);
+
+  // Check if we should send weekly summary on startup
+  await checkAndSendWeeklySummary();
+
+  // Check for weekly summary every hour
+  setInterval(async () => {
+    await checkAndSendWeeklySummary();
+  }, 60 * 60 * 1000); // Every hour
 });
+
+async function checkAndSendWeeklySummary() {
+  try {
+    const now = DateTime.now().setZone(DEFAULT_TZ);
+    const today = now.toFormat("yyyy-MM-dd");
+    const dayOfWeek = now.weekday; // 1 = Monday, 7 = Sunday
+
+    // Only send on Mondays
+    if (dayOfWeek !== 1) return;
+
+    // Check if we already sent today
+    const lastSummaryDate = db.getLastSummaryDate();
+    if (lastSummaryDate === today) return;
+
+    // Generate and send summary
+    const channel = await client.channels.fetch(SLEEP_CHANNEL_ID);
+    if (!channel) {
+      console.error("Could not fetch sleep channel for weekly summary");
+      return;
+    }
+
+    const summary = await generateWeeklySummary(db, DEFAULT_TZ);
+    await channel.send(summary);
+
+    // Mark as sent
+    db.setLastSummaryDate(today);
+    console.log(`📊 Weekly summary sent for ${today}`);
+  } catch (err) {
+    console.error("Error sending weekly summary:", err);
+  }
+}
 
 client.on("messageCreate", async (message) => {
   try {
