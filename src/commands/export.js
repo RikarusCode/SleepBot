@@ -10,7 +10,7 @@ async function handleExport(message, db) {
     return;
   }
 
-  const header = ["user_id","username","bed_ts_utc","wake_ts_utc","sleep_minutes","rating_1_10","rating_status","note"];
+  const header = ["user_id","username","bed_ts_utc","wake_ts_utc","sleep_minutes","rating_1_10","rating_status","morning_energy_rating","note","gm_note"];
   const lines = [header.join(",")];
 
   for (const r of rows) {

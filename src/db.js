@@ -27,8 +27,10 @@ function initDb(dbPath) {
       sleep_minutes INTEGER,
       rating_1_10 INTEGER,
       rating_status TEXT NOT NULL CHECK(rating_status IN ('MISSING','RECORDED','OMITTED')),
+      morning_energy_rating INTEGER,
       status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSED')),
-      note TEXT
+      note TEXT,
+      gm_note TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_user_status
@@ -73,6 +75,28 @@ function initDb(dbPath) {
     `);
   } catch (err) {
     // Ignore if already exists
+  }
+
+  // Migration: Add morning_energy_rating column to sessions table if it doesn't exist
+  try {
+    const tableInfo = db.pragma(`table_info(sessions)`);
+    const hasMorningRatingColumn = tableInfo.some(col => col.name === 'morning_energy_rating');
+    if (!hasMorningRatingColumn) {
+      db.exec(`ALTER TABLE sessions ADD COLUMN morning_energy_rating INTEGER`);
+    }
+  } catch (err) {
+    // Table might not exist yet, that's okay
+  }
+
+  // Migration: Add gm_note column to sessions table if it doesn't exist
+  try {
+    const tableInfo = db.pragma(`table_info(sessions)`);
+    const hasGmNoteColumn = tableInfo.some(col => col.name === 'gm_note');
+    if (!hasGmNoteColumn) {
+      db.exec(`ALTER TABLE sessions ADD COLUMN gm_note TEXT`);
+    }
+  } catch (err) {
+    // Table might not exist yet, that's okay
   }
 
   db.exec(`
@@ -138,6 +162,19 @@ function initDb(dbPath) {
     LIMIT 1
   `);
 
+  const lastSessionNeedingMorningRating = db.prepare(`
+    SELECT * FROM sessions
+    WHERE user_id = ? AND status = 'CLOSED' AND morning_energy_rating IS NULL
+    ORDER BY id DESC
+    LIMIT 1
+  `);
+
+  const setMorningRating = db.prepare(`
+    UPDATE sessions
+    SET morning_energy_rating = ?
+    WHERE id = ?
+  `);
+
   const createSession = db.prepare(`
     INSERT INTO sessions (user_id, username, bed_ts_utc, rating_status, status, note)
     VALUES (?, ?, ?, 'MISSING', 'OPEN', ?)
@@ -145,7 +182,7 @@ function initDb(dbPath) {
 
   const closeSession = db.prepare(`
     UPDATE sessions
-    SET wake_ts_utc = ?, sleep_minutes = ?, status = 'CLOSED'
+    SET wake_ts_utc = ?, sleep_minutes = ?, status = 'CLOSED', morning_energy_rating = ?, gm_note = ?
     WHERE id = ?
   `);
 
@@ -189,7 +226,9 @@ function initDb(dbPath) {
       sleep_minutes,
       rating_1_10,
       rating_status,
-      note
+      morning_energy_rating,
+      note,
+      gm_note
     FROM sessions
     WHERE status = 'CLOSED'
     ORDER BY bed_ts_utc ASC
@@ -302,13 +341,21 @@ function initDb(dbPath) {
       return lastSessionNeedingRating.get(userId) || null;
     },
 
+    lastSessionNeedingMorningRating(userId) {
+      return lastSessionNeedingMorningRating.get(userId) || null;
+    },
+
+    setMorningRating(sessionId, rating) {
+      setMorningRating.run(rating, sessionId);
+    },
+
     createSession(userId, username, bedIsoUtc, note) {
       const info = createSession.run(userId, username, bedIsoUtc, note || null);
       return Number(info.lastInsertRowid);
     },
 
-    closeSession(sessionId, wakeIsoUtc, sleepMinutes) {
-      closeSession.run(wakeIsoUtc, sleepMinutes, sessionId);
+    closeSession(sessionId, wakeIsoUtc, sleepMinutes, morningRating, gmNote) {
+      closeSession.run(wakeIsoUtc, sleepMinutes, morningRating || null, gmNote || null, sessionId);
     },
 
     setRating(sessionId, rating) {

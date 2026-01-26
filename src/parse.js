@@ -150,7 +150,7 @@ function parseMessage(raw) {
 
   const cmd = normalize(commandPart);
   if (GOODNIGHT.has(cmd)) return { kind: "GN", timeToken, rating, note };
-  if (GOODMORNING.has(cmd)) return { kind: "GM", timeToken, rating };
+  if (GOODMORNING.has(cmd)) return { kind: "GM", timeToken, rating, note };
   return { kind: "UNKNOWN" };
 }
 

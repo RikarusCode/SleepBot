@@ -10,6 +10,8 @@ const {
   promptMissingGM,
   promptConsecutiveGM,
   remindRatingOnGM,
+  promptMorningEnergy,
+  remindMorningEnergy,
 } = require("../utils");
 
 // Helper to calculate hours since a session was created
@@ -20,6 +22,17 @@ function hoursSinceSession(sessionBedIsoUtc) {
 }
 
 async function handleRatingOnly(message, parsed, userId, username, raw, db) {
+  // Check for morning energy rating first (most recent closed session)
+  const needsMorningRating = db.lastSessionNeedingMorningRating(userId);
+  if (needsMorningRating) {
+    const nowIsoUtc = new Date().toISOString();
+    db.setMorningRating(needsMorningRating.id, parsed.rating);
+    db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
+    await message.react("✅").catch(() => {});
+    return;
+  }
+
+  // Otherwise check for evening energy rating
   const target = db.lastSessionNeedingRating(userId);
   if (!target) {
     await message.react("❓").catch(() => {});
@@ -156,7 +169,7 @@ async function handleGM(message, parsed, userId, username, raw, db, defaultTz) {
   }
 
   const mins = minutesBetween(targetSession.bed_ts_utc, wakeIsoUtc);
-  db.closeSession(targetSession.id, wakeIsoUtc, mins);
+  db.closeSession(targetSession.id, wakeIsoUtc, mins, parsed.rating || null, parsed.note || null);
   db.recordCheckin(userId, username, "GM", wakeIsoUtc, raw);
 
   // Delete any other open sessions that are older than the one we just completed
@@ -173,11 +186,14 @@ async function handleGM(message, parsed, userId, username, raw, db, defaultTz) {
     db.deletePendingGN(userId, pending.checkin_id);
   }
 
-  // Priority: session consistency first, then energy rating
-  // If rating still missing for this session, remind on GM (per your rules)
+  // Priority: session consistency first, then energy ratings
+  // If evening rating still missing for this session, remind on GM
   const needsRating = db.lastSessionNeedingRating(userId);
   if (needsRating && needsRating.id === targetSession.id) {
     await remindRatingOnGM(message);
+  } else if (parsed.rating == null) {
+    // If morning rating not provided, prompt for it
+    await promptMorningEnergy(message);
   }
 
   await message.react("☀️").catch(() => {});

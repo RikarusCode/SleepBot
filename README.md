@@ -23,18 +23,26 @@ Retroactively log sleep times or specify exact times:
 
 ### Energy Ratings (1–10)
 
-Track daily energy levels:
+Track energy levels at different times:
 
-* **Inline**: `gn (11pm) !8` - Rate energy when logging bedtime
-* **Follow-up**: Reply with `!5` after receiving a prompt
+* **Evening Rating** (how energetic you felt today):
+  * **Inline**: `gn (11pm) !8` - Rate energy when logging bedtime
+  * **Follow-up**: Reply with `!5` after receiving a prompt
+* **Morning Rating** (how energetic you feel right now):
+  * **Inline**: `gm !3` - Rate energy when logging wake time
+  * **Follow-up**: Reply with `!5` after receiving a prompt
 * Ratings are optional but encouraged; missing ratings are automatically omitted if a new session starts
 
 ### Session Notes
 
 Add qualitative context to sleep sessions:
 
-* `gn !5 (9pm) "pset grinding"` - Add a note about what you were doing
-* `gn "studying" !8` - Notes can appear anywhere after the command
+* **Bedtime notes** (what you were doing before sleep):
+  * `gn !5 (9pm) "pset grinding"` - Add a note when logging bedtime
+  * `gn "studying" !8` - Notes can appear anywhere after the command
+* **Morning notes** (how you feel when waking up):
+  * `gm !3 "slept poorly"` - Add a note when logging wake time
+  * `gm "feeling refreshed" !7` - Notes can appear anywhere after the command
 * Notes are stored in the database and included in CSV exports
 
 ### Smart Session Management
@@ -60,7 +68,7 @@ Every Monday, the bot automatically sends a weekly summary to the sleep channel 
 ### Data Export
 
 * `!export` - Receive a CSV file via DM containing all completed sleep sessions
-* CSV includes: user ID, username, bed time, wake time, sleep duration, energy rating, rating status, and notes
+* CSV includes: user ID, username, bed time, wake time, sleep duration, evening energy rating, rating status, morning energy rating, bedtime note, and morning note
 
 ### Data Management
 
@@ -77,11 +85,13 @@ Every Monday, the bot automatically sends a weekly summary to the sleep channel 
 |---------|-------------|
 | `gn` | Log bedtime (current time) |
 | `gn (11pm)` | Log bedtime with time override |
-| `gn !8` | Log bedtime with energy rating |
+| `gn !8` | Log bedtime with evening energy rating |
 | `gn (11pm) !8 "studying"` | Log bedtime with time, rating, and note |
 | `gm` | Log wake time (current time) |
 | `gm (9am)` | Log wake time with time override |
-| `!5` | Rate energy level (1-10) as follow-up |
+| `gm !3` | Log wake time with morning energy rating |
+| `gm !3 "slept poorly"` | Log wake time with rating and note |
+| `!5` | Rate energy level (1-10) as follow-up (prioritizes morning, then evening) |
 
 ### Utility Commands
 
@@ -105,10 +115,12 @@ One row per sleep session:
 * `bed_ts_utc` - Bedtime timestamp (UTC ISO format)
 * `wake_ts_utc` - Wake time timestamp (UTC ISO format, nullable)
 * `sleep_minutes` - Calculated sleep duration in minutes
-* `rating_1_10` - Energy rating (1-10, nullable)
-* `rating_status` - `MISSING`, `RECORDED`, or `OMITTED`
+* `rating_1_10` - Evening energy rating (1-10, nullable) - how energetic you felt during the day
+* `rating_status` - `MISSING`, `RECORDED`, or `OMITTED` (for evening rating)
+* `morning_energy_rating` - Morning energy rating (1-10, nullable) - how energetic you feel right now
 * `status` - `OPEN` or `CLOSED`
-* `note` - Optional qualitative note (text, nullable)
+* `note` - Optional bedtime note (text, nullable) - what you were doing before sleep
+* `gm_note` - Optional morning note (text, nullable) - how you feel when waking up
 
 ### Checkins Table
 

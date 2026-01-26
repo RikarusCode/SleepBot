@@ -30,10 +30,20 @@ async function remindRatingOnGM(message) {
   await safeReply(message, "Reminder: you still owe an energy rating. Reply with `!1`–`!10`.");
 }
 
+async function promptMorningEnergy(message) {
+  await safeReply(message, "Quick check-in: reply with `!1`–`!10` for how energetic you feel right now (10 = great).");
+}
+
+async function remindMorningEnergy(message) {
+  await safeReply(message, "Reminder: you still owe a morning energy rating. Reply with `!1`–`!10` for how energetic you feel right now.");
+}
+
 module.exports = {
   safeReply,
   promptRating,
   promptMissingGM,
   promptConsecutiveGM,
   remindRatingOnGM,
+  promptMorningEnergy,
+  remindMorningEnergy,
 };
