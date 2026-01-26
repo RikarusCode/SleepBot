@@ -39,14 +39,38 @@ async function handleUndo(message, db) {
       }
     } else if (undoState.undo_type === "GM") {
       // Restore the closed session state
-      const mins = sessionData.sleep_minutes;
-      db.closeSession(
-        undoState.session_id,
-        sessionData.wake_ts_utc,
-        mins,
-        sessionData.morning_energy_rating || null,
-        sessionData.gm_note || null
-      );
+      // The session_id might not exist if GN was reset after GM (session was deleted and recreated)
+      // So we need to find the most recent OPEN session for this user
+      const openSession = db.getOpenSession(undoState.user_id);
+      
+      if (!openSession) {
+        // No open session found - this can happen if GN was reset and not yet undone
+        // Try to find the most recent session (might be closed)
+        const lastSession = db.lastSession(undoState.user_id);
+        if (lastSession && lastSession.status === "OPEN") {
+          // Found an open session, use it
+          const mins = sessionData.sleep_minutes;
+          db.closeSession(
+            lastSession.id,
+            sessionData.wake_ts_utc,
+            mins,
+            sessionData.morning_energy_rating || null,
+            sessionData.gm_note || null
+          );
+        } else {
+          console.error(`[UNDO] Cannot restore GM: no open session found for user ${undoState.user_id}`);
+        }
+      } else {
+        // Found an open session, close it with the saved data
+        const mins = sessionData.sleep_minutes;
+        db.closeSession(
+          openSession.id,
+          sessionData.wake_ts_utc,
+          mins,
+          sessionData.morning_energy_rating || null,
+          sessionData.gm_note || null
+        );
+      }
     } else if (undoState.undo_type === "RATING_EVENING") {
       // Restore evening rating
       if (sessionData.rating_1_10 != null) {
