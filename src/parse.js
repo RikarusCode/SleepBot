@@ -117,18 +117,20 @@ function minutesBetween(isoUtcA, isoUtcB) {
 // - with notes: "gn !5 (9pm) \"pset grinding\"", "gn \"pset grinding\" !5 (9pm)"
 function parseMessage(raw) {
   const trimmed = raw.trim();
+  // Normalize smart quotes to standard quotes so mobile input like “note” works
+  const normalized = trimmed.replace(/[“”]/g, '"');
 
-  const ratingOnly = trimmed.match(/^!\s*([1-9]|10)\s*$/);
+  const ratingOnly = normalized.match(/^!\s*([1-9]|10)\s*$/);
   if (ratingOnly) return { kind: "RATING_ONLY", rating: Number(ratingOnly[1]) };
 
   // Extract quoted note first (can be anywhere after the command)
   let note = null;
-  let withoutNote = trimmed;
-  const noteMatch = trimmed.match(/"([^"]*)"/);
+  let withoutNote = normalized;
+  const noteMatch = normalized.match(/"([^"]*)"/);
   if (noteMatch) {
     note = noteMatch[1].trim();
     // Remove the quoted text from the string
-    withoutNote = trimmed.slice(0, noteMatch.index) + trimmed.slice(noteMatch.index + noteMatch[0].length);
+    withoutNote = normalized.slice(0, noteMatch.index) + normalized.slice(noteMatch.index + noteMatch[0].length);
     withoutNote = withoutNote.trim();
   }
 
