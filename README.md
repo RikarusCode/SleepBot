@@ -265,12 +265,17 @@ Stack‑like storage for undoing resets:
    DEFAULT_TZ=America/Los_Angeles
    DB_PATH=./sleep.sqlite
    ADMIN_USER_ID=your_discord_user_id_here
+   GUILD_ID=your_server_id_here
    ```
 
    **Required:**
 
    - `DISCORD_TOKEN` – Your Discord bot token  
    - `SLEEP_CHANNEL_ID` – The Discord channel ID where the bot should listen and post weekly summaries  
+
+   **Recommended:**
+
+   - `GUILD_ID` – Server ID where you want slash commands to appear immediately (per‑guild registration)  
 
    **Optional:**
 
