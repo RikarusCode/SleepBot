@@ -4,6 +4,41 @@
 
 Simply say "good night" and "good morning" to automatically track your sleep patterns, energy levels, and habits.
 
+## 📖 Commands
+
+### Slash Commands
+
+| Command | Options | Description |
+|---------|---------|-------------|
+| `/gn` | `rating?`, `time?`, `note?`, `user?` | Log bedtime with optional evening rating, time override, and note. Admin can specify `user` to log for others. |
+| `/gm` | `rating?`, `time?`, `note?`, `user?` | Log wake time with optional morning rating, time override, and note. |
+| `/rate` | `value` (1–10), `user?` | Add a standalone energy rating (prioritizes morning, then evening). |
+| `/export` | – | Export all completed sessions to CSV (delivered via DM). |
+| `/reset` | `scope` (`last` \| `all`), `user?` | Reset last entry or wipe all data (admin only for `all`). |
+| `/undo` | – | Undo the most recent reset operation (stack-based). |
+
+### Text Commands
+
+#### Check-ins
+- `gn` – Log bedtime (current time)
+- `gn (11pm)` – Log bedtime with time override
+- `gn !8` – Log bedtime with evening energy rating
+- `gn (11pm) !8 "studying"` – Full example with time, rating, and note
+- `gm` – Log wake time (current time)
+- `gm (9am)` – Log wake time with override
+- `gm !3 "slept poorly"` – Wake time with morning rating and note
+- `!5` – Standalone energy rating (1–10)
+
+#### Utility
+- `!export` – Export all sessions to CSV
+- `!reset last` – Reset your most recent entry
+- `!undo` – Undo the last reset
+- `!reset all` – Wipe all data (admin only)
+
+#### Admin Commands
+- `gn @user !7 (11pm)` – Log for another user
+- `!reset last @user` – Reset another user's entry
+
 ## ✨ Features
 
 ### 🎯 Dual Command Interface
@@ -79,41 +114,6 @@ Simply say "good night" and "good morning" to automatically track your sleep pat
    - **Scopes:** `bot`, `applications.commands`
    - **Bot Permissions:** Send Messages, Read Message History, Read Messages/View Channels
 4. Invite the bot using the generated URL
-
-## 📖 Commands
-
-### Slash Commands
-
-| Command | Options | Description |
-|---------|---------|-------------|
-| `/gn` | `rating?`, `time?`, `note?`, `user?` | Log bedtime with optional evening rating, time override, and note. Admin can specify `user` to log for others. |
-| `/gm` | `rating?`, `time?`, `note?`, `user?` | Log wake time with optional morning rating, time override, and note. |
-| `/rate` | `value` (1–10), `user?` | Add a standalone energy rating (prioritizes morning, then evening). |
-| `/export` | – | Export all completed sessions to CSV (delivered via DM). |
-| `/reset` | `scope` (`last` \| `all`), `user?` | Reset last entry or wipe all data (admin only for `all`). |
-| `/undo` | – | Undo the most recent reset operation (stack-based). |
-
-### Text Commands
-
-#### Check-ins
-- `gn` – Log bedtime (current time)
-- `gn (11pm)` – Log bedtime with time override
-- `gn !8` – Log bedtime with evening energy rating
-- `gn (11pm) !8 "studying"` – Full example with time, rating, and note
-- `gm` – Log wake time (current time)
-- `gm (9am)` – Log wake time with override
-- `gm !3 "slept poorly"` – Wake time with morning rating and note
-- `!5` – Standalone energy rating (1–10)
-
-#### Utility
-- `!export` – Export all sessions to CSV
-- `!reset last` – Reset your most recent entry
-- `!undo` – Undo the last reset
-- `!reset all` – Wipe all data (admin only)
-
-#### Admin Commands
-- `gn @user !7 (11pm)` – Log for another user
-- `!reset last @user` – Reset another user's entry
 
 ## 🎨 Key Features Explained
 
