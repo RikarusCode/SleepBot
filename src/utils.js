@@ -33,7 +33,7 @@ async function promptConsecutiveGM(message) {
 }
 
 async function remindRatingOnGM(message) {
-  await safeReply(message, "Reminder: you still owe an energy rating. Reply with `!1`–`!10`.");
+  await safeReply(message, "Reminder: you still owe an evening energy rating for last night. Reply with `!1`–`!10`.");
 }
 
 async function promptMorningEnergy(message) {
@@ -44,6 +44,20 @@ async function remindMorningEnergy(message) {
   await safeReply(message, "Reminder: you still owe a morning energy rating. Reply with `!1`–`!10` for how energetic you feel right now.");
 }
 
+async function promptBothRatingsAfterGM(message) {
+  await safeReply(
+    message,
+    "You still owe **two** energy ratings for this sleep: first send `!1`–`!10` for how energetic you felt yesterday, then send another `!1`–`!10` for how you feel right now."
+  );
+}
+
+async function promptMorningAfterEvening(message) {
+  await safeReply(
+    message,
+    "Got it for last night. Now send another `!1`–`!10` for how you feel right now this morning."
+  );
+}
+
 module.exports = {
   safeReply,
   promptRating,
@@ -52,4 +66,6 @@ module.exports = {
   remindRatingOnGM,
   promptMorningEnergy,
   remindMorningEnergy,
+  promptBothRatingsAfterGM,
+  promptMorningAfterEvening,
 };

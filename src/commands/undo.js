@@ -72,14 +72,20 @@ async function handleUndo(message, db) {
         );
       }
     } else if (undoState.undo_type === "RATING_EVENING") {
-      // Restore evening rating
+      // Restore evening rating to the most relevant session (current open or last)
       if (sessionData.rating_1_10 != null) {
-        db.setRating(undoState.session_id, sessionData.rating_1_10);
+        const targetSession = db.getOpenSession(undoState.user_id) || db.lastSession(undoState.user_id);
+        if (targetSession) {
+          db.setRating(targetSession.id, sessionData.rating_1_10);
+        }
       }
     } else if (undoState.undo_type === "RATING_MORNING") {
-      // Restore morning rating
+      // Restore morning rating to the most recent CLOSED session
       if (sessionData.morning_energy_rating != null) {
-        db.setMorningRating(undoState.session_id, sessionData.morning_energy_rating);
+        const lastSession = db.lastSession(undoState.user_id);
+        if (lastSession && lastSession.status === "CLOSED") {
+          db.setMorningRating(lastSession.id, sessionData.morning_energy_rating);
+        }
       }
     }
   }

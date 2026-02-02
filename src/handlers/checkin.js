@@ -12,6 +12,8 @@ const {
   remindRatingOnGM,
   promptMorningEnergy,
   remindMorningEnergy,
+  promptBothRatingsAfterGM,
+  promptMorningAfterEvening,
 } = require("../utils");
 
 // Helper to calculate hours since a session was created
@@ -22,30 +24,49 @@ function hoursSinceSession(sessionBedIsoUtc) {
 }
 
 async function handleRatingOnly(message, parsed, userId, username, raw, db) {
-  // Check for morning energy rating first (most recent closed session)
-  const needsMorningRating = db.lastSessionNeedingMorningRating(userId);
-  if (needsMorningRating) {
-    const nowIsoUtc = new Date().toISOString();
-    db.setMorningRating(needsMorningRating.id, parsed.rating);
+  // Look at both missing ratings to decide where this rating should go
+  const needsEvening = db.lastSessionNeedingRating(userId);
+  const needsMorning = db.lastSessionNeedingMorningRating(userId);
+
+  const nowIsoUtc = new Date().toISOString();
+
+  // If the same session is missing BOTH evening and morning ratings,
+  // treat the *first* standalone rating as the evening rating.
+  if (needsEvening && needsMorning && needsEvening.id === needsMorning.id) {
+    db.setRating(needsEvening.id, parsed.rating);
     db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
-    // Clear undo stack when new checkin is made
+    db.deleteAllUndoStates(userId);
+    await message.react("✅").catch(() => {});
+
+     // Now prompt explicitly for the morning rating
+     const stillNeedsMorning = db.lastSessionNeedingMorningRating(userId);
+     if (stillNeedsMorning && stillNeedsMorning.id === needsEvening.id) {
+       await promptMorningAfterEvening(message);
+     }
+
+    return;
+  }
+
+  // Otherwise: prefer filling a missing morning rating first
+  if (needsMorning) {
+    db.setMorningRating(needsMorning.id, parsed.rating);
+    db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
     db.deleteAllUndoStates(userId);
     await message.react("✅").catch(() => {});
     return;
   }
 
-  // Otherwise check for evening energy rating
-  const target = db.lastSessionNeedingRating(userId);
-  if (!target) {
-    await message.react("❓").catch(() => {});
+  // Finally, fall back to evening rating if needed
+  if (needsEvening) {
+    db.setRating(needsEvening.id, parsed.rating);
+    db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
+    db.deleteAllUndoStates(userId);
+    await message.react("✅").catch(() => {});
     return;
   }
-  const nowIsoUtc = new Date().toISOString();
-  db.setRating(target.id, parsed.rating);
-  db.recordCheckin(userId, username, "RATING", nowIsoUtc, raw);
-  // Clear undo stack when new checkin is made
-  db.deleteAllUndoStates(userId);
-  await message.react("✅").catch(() => {});
+
+  // No session needs any rating
+  await message.react("❓").catch(() => {});
 }
 
 async function handleGN(message, parsed, userId, username, raw, db, defaultTz) {
@@ -195,12 +216,21 @@ async function handleGM(message, parsed, userId, username, raw, db, defaultTz) {
   }
 
   // Priority: session consistency first, then energy ratings
-  // If evening rating still missing for this session, remind on GM
-  const needsRating = db.lastSessionNeedingRating(userId);
-  if (needsRating && needsRating.id === targetSession.id) {
+  // Check which ratings are missing for this specific session
+  const needsEvening = db.lastSessionNeedingRating(userId);
+  const needsMorning = db.lastSessionNeedingMorningRating(userId);
+
+  const thisNeedsEvening = needsEvening && needsEvening.id === targetSession.id;
+  const thisNeedsMorning = needsMorning && needsMorning.id === targetSession.id;
+
+  if (thisNeedsEvening && thisNeedsMorning) {
+    // Both missing: be explicit about the two-step process
+    await promptBothRatingsAfterGM(message);
+  } else if (thisNeedsEvening) {
+    // Only evening missing
     await remindRatingOnGM(message);
-  } else if (parsed.rating == null) {
-    // If morning rating not provided, prompt for it
+  } else if (thisNeedsMorning && parsed.rating == null) {
+    // Only morning missing and none was provided inline
     await promptMorningEnergy(message);
   }
 
