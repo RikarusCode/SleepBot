@@ -195,6 +195,11 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
       }
 
       await handleGN(messageLike, parsed, userId, username, raw, db, defaultTz);
+
+      // Text handlers often only react; for slash we must send a response
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "🌙 Logged good night.", ephemeral: true });
+      }
       return;
     }
 
@@ -215,6 +220,10 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
       }
 
       await handleGM(messageLike, parsed, userId, username, raw, db, defaultTz);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "☀️ Logged good morning.", ephemeral: true });
+      }
       return;
     }
 
@@ -228,11 +237,19 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
       }
 
       await handleRatingOnly(messageLike, parsed, userId, username, raw, db);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "✅ Logged rating.", ephemeral: true });
+      }
       return;
     }
 
     if (interaction.commandName === "export") {
       await handleExport(messageLike, db);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "📩 Export requested. Check your DMs.", ephemeral: true });
+      }
       return;
     }
 
@@ -240,11 +257,19 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
       const scope = interaction.options.getString("scope");
       const raw = `!reset ${scope}`;
       await handleReset(messageLike, raw, db, adminUserId);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "♻️ Processed reset command.", ephemeral: true });
+      }
       return;
     }
 
     if (interaction.commandName === "undo") {
       await handleUndo(messageLike, db);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "✅ Processed undo command.", ephemeral: true });
+      }
       return;
     }
   } catch (err) {
