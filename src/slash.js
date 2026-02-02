@@ -117,16 +117,24 @@ function buildSlashCommands() {
   return commands;
 }
 
-async function registerSlashCommands(client, token) {
+async function registerSlashCommands(client, token, guildId) {
   const commands = buildSlashCommands().map((cmd) => cmd.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(token);
 
-  await rest.put(Routes.applicationCommands(client.user.id), {
-    body: commands,
-  });
-
-  console.log("✅ Registered slash commands");
+  if (guildId) {
+    // Fast install for a single guild (updates immediately)
+    await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), {
+      body: commands,
+    });
+    console.log(`✅ Registered slash commands for guild ${guildId}`);
+  } else {
+    // Global commands (can take up to ~1 hour to appear)
+    await rest.put(Routes.applicationCommands(client.user.id), {
+      body: commands,
+    });
+    console.log("✅ Registered global slash commands");
+  }
 }
 
 function makeMessageAdapterFromInteraction(interaction) {

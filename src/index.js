@@ -16,6 +16,7 @@ const SLEEP_CHANNEL_ID = process.env.SLEEP_CHANNEL_ID;
 const DB_PATH = process.env.DB_PATH || "./sleep.sqlite";
 const DEFAULT_TZ = process.env.DEFAULT_TZ || "America/Los_Angeles";
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID || null;
+const GUILD_ID = process.env.GUILD_ID || null;
 
 if (!TOKEN) throw new Error("DISCORD_TOKEN missing from .env");
 if (!SLEEP_CHANNEL_ID) throw new Error("SLEEP_CHANNEL_ID missing from .env");
@@ -33,7 +34,7 @@ client.once("ready", async () => {
 
   // Register slash commands (keeps text commands working too)
   try {
-    await registerSlashCommands(client, TOKEN);
+    await registerSlashCommands(client, TOKEN, GUILD_ID);
   } catch (err) {
     console.error("Failed to register slash commands:", err);
   }

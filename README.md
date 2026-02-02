@@ -4,6 +4,46 @@ A Discord bot for lightweight sleep tracking with natural-language check-ins **a
 
 ---
 
+## Commands Reference
+
+### Slash Commands (Recommended)
+
+| Command | Options | Description |
+|--------|---------|-------------|
+| `/gn` | `rating?`, `time?`, `note?` | Log bedtime (current time or override), optionally add evening rating and bedtime note. |
+| `/gm` | `rating?`, `time?`, `note?` | Log wake time (current time or override), optionally add morning rating and note. |
+| `/rate` | `value` (1–10) | Add a standalone energy rating (prefers pending morning rating, then evening). |
+| `/export` | – | Export all completed sessions to CSV (DM). |
+| `/reset` | `scope` = `last` \| `all` | Reset last entry, or wipe all data (admin only for `all`). |
+| `/undo` | – | Undo the most recent reset operation (stack‑based, can be called multiple times). |
+
+### Legacy Text Commands (Still Supported)
+
+#### Check-ins
+
+| Command | Description |
+|---------|-------------|
+| `gn` | Log bedtime (current time). |
+| `gn (11pm)` | Log bedtime with time override. |
+| `gn !8` | Log bedtime with evening energy rating. |
+| `gn (11pm) !8 "studying"` | Log bedtime with time, rating, and note. |
+| `gm` | Log wake time (current time). |
+| `gm (9am)` | Log wake time with time override. |
+| `gm !3` | Log wake time with morning energy rating. |
+| `gm !3 "slept poorly"` | Log wake time with rating and note. |
+| `!5` | Standalone energy rating (1–10); prioritizes missing morning rating, then evening. |
+
+#### Utility
+
+| Command | Description | Access |
+|---------|-------------|--------|
+| `!export` | Export all completed sessions to CSV. | Anyone |
+| `!reset last` | Reset your most recent entry and push it onto the undo stack. | Anyone |
+| `!undo` | Undo the last reset operation; can be repeated. | Anyone |
+| `!reset all` | Wipe all sessions and checkins. | Admin only |
+
+---
+
 ## Features
 
 ### Natural Language & Slash Command Check-ins
@@ -124,46 +164,6 @@ Summaries are stored in a `weekly_summary_state` table so each Monday’s summar
 Slash equivalents:
 
 - `/export`, `/reset scope:last`, `/reset scope:all`, `/undo`
-
----
-
-## Commands Reference
-
-### Slash Commands (Recommended)
-
-| Command | Options | Description |
-|--------|---------|-------------|
-| `/gn` | `rating?`, `time?`, `note?` | Log bedtime (current time or override), optionally add evening rating and bedtime note. |
-| `/gm` | `rating?`, `time?`, `note?` | Log wake time (current time or override), optionally add morning rating and note. |
-| `/rate` | `value` (1–10) | Add a standalone energy rating (prefers pending morning rating, then evening). |
-| `/export` | – | Export all completed sessions to CSV (DM). |
-| `/reset` | `scope` = `last` \| `all` | Reset last entry, or wipe all data (admin only for `all`). |
-| `/undo` | – | Undo the most recent reset operation (stack‑based, can be called multiple times). |
-
-### Legacy Text Commands (Still Supported)
-
-#### Check-ins
-
-| Command | Description |
-|---------|-------------|
-| `gn` | Log bedtime (current time). |
-| `gn (11pm)` | Log bedtime with time override. |
-| `gn !8` | Log bedtime with evening energy rating. |
-| `gn (11pm) !8 "studying"` | Log bedtime with time, rating, and note. |
-| `gm` | Log wake time (current time). |
-| `gm (9am)` | Log wake time with time override. |
-| `gm !3` | Log wake time with morning energy rating. |
-| `gm !3 "slept poorly"` | Log wake time with rating and note. |
-| `!5` | Standalone energy rating (1–10); prioritizes missing morning rating, then evening. |
-
-#### Utility
-
-| Command | Description | Access |
-|---------|-------------|--------|
-| `!export` | Export all completed sessions to CSV. | Anyone |
-| `!reset last` | Reset your most recent entry and push it onto the undo stack. | Anyone |
-| `!undo` | Undo the last reset operation; can be repeated. | Anyone |
-| `!reset all` | Wipe all sessions and checkins. | Admin only |
 
 ---
 
