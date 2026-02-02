@@ -172,4 +172,5 @@ module.exports = {
   computeWakeUtcFromOverride,
   minutesBetween,
   parseMessage,
+  parseTimeToken,
 };

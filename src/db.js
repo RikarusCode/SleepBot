@@ -286,6 +286,20 @@ function initDb(dbPath) {
     DELETE FROM sessions WHERE id = ?
   `);
 
+  const updateSessionBedtime = db.prepare(`
+    UPDATE sessions SET bed_ts_utc = ? WHERE id = ?
+  `);
+
+  const getCheckinsForSession = db.prepare(`
+    SELECT c.* FROM checkins c
+    INNER JOIN sessions s ON c.user_id = s.user_id
+    WHERE s.id = ?
+    AND c.kind = 'GN'
+    AND c.ts_utc <= COALESCE(s.wake_ts_utc, s.bed_ts_utc)
+    ORDER BY c.ts_utc DESC
+    LIMIT 1
+  `);
+
   const sessionsForExport = db.prepare(`
     SELECT
       user_id,
@@ -515,6 +529,14 @@ function initDb(dbPath) {
 
     deleteSession(sessionId) {
       deleteSessionById.run(sessionId);
+    },
+
+    updateSessionBedtime(sessionId, bedIsoUtc) {
+      updateSessionBedtime.run(bedIsoUtc, sessionId);
+    },
+
+    getCheckinsForSession(sessionId) {
+      return getCheckinsForSession.all(sessionId) || [];
     },
 
     clearRating(sessionId) {

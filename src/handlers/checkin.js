@@ -195,7 +195,60 @@ async function handleGM(message, parsed, userId, username, raw, db, defaultTz) {
     return;
   }
 
-  const mins = minutesBetween(targetSession.bed_ts_utc, wakeIsoUtc);
+  // Check for negative sleep duration - this happens when bedtime was misinterpreted
+  // (e.g., "11:45" was interpreted as 11:45 AM instead of 11:45 PM the previous night)
+  let bedIsoUtc = targetSession.bed_ts_utc;
+  let mins = minutesBetween(bedIsoUtc, wakeIsoUtc);
+  
+  if (mins < 0) {
+    // Negative sleep - try to fix by checking if the original GN had an ambiguous time
+    // We need to check the original checkin to see if it had a time override
+    const checkins = db.getCheckinsForSession(targetSession.id);
+    const gnCheckin = checkins.length > 0 ? checkins[0] : null;
+    
+    if (gnCheckin && gnCheckin.raw_content) {
+      // Parse the original GN command to see if it had a time token
+      const { parseMessage } = require("../parse");
+      const originalParsed = parseMessage(gnCheckin.raw_content);
+      
+      if (originalParsed.timeToken) {
+        // Check if the time was ambiguous (no AM/PM specified)
+        const { parseTimeToken } = require("../parse");
+        const timeParsed = parseTimeToken(originalParsed.timeToken);
+        
+        if (timeParsed && !timeParsed.suffix && timeParsed.rawHour <= 12) {
+          // Ambiguous time without AM/PM - try PM interpretation from previous night
+          const { DateTime } = require("luxon");
+          const wakeLocal = DateTime.fromISO(wakeIsoUtc, { zone: "utc" }).setZone(defaultTz);
+          const bedLocalCurrent = DateTime.fromISO(bedIsoUtc, { zone: "utc" }).setZone(defaultTz);
+          
+          // If the current bedtime interpretation is after the wake time, try PM from previous day
+          if (bedLocalCurrent >= wakeLocal) {
+            // Try PM interpretation from the day before wake time
+            const bedLocal = wakeLocal.minus({ days: 1 }).set({ 
+              hour: timeParsed.rawHour === 12 ? 12 : timeParsed.rawHour + 12, 
+              minute: timeParsed.minute, 
+              second: 0, 
+              millisecond: 0 
+            });
+            
+            // Only use this if it makes sense (bedtime before wake time and reasonable sleep duration)
+            const newBedIsoUtc = bedLocal.toUTC().toISO();
+            const newMins = minutesBetween(newBedIsoUtc, wakeIsoUtc);
+            
+            if (newMins > 0 && newMins <= 16 * 60) { // Max 16 hours sleep
+              bedIsoUtc = newBedIsoUtc;
+              mins = newMins;
+              
+              // Update the session's bedtime
+              db.updateSessionBedtime(targetSession.id, bedIsoUtc);
+            }
+          }
+        }
+      }
+    }
+  }
+  
   db.closeSession(targetSession.id, wakeIsoUtc, mins, parsed.rating || null, parsed.note || null);
   db.recordCheckin(userId, username, "GM", wakeIsoUtc, raw);
   // Clear undo stack when new checkin is made
