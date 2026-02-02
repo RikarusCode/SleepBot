@@ -1,8 +1,6 @@
 # SleepBot 💤
 
-> A Discord bot for effortless sleep tracking with natural language commands and intelligent session management.
-
-Simply say "good night" and "good morning" to automatically track your sleep patterns, energy levels, and habits.
+> A Discord bot for effortless sleep tracking with natural language commands and intelligent session management. Simply say "good night" and "good morning" to begin recording your sleep patterns, energy levels, and habits.
 
 ## 📖 Commands
 
