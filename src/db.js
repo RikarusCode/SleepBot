@@ -371,8 +371,9 @@ function initDb(dbPath) {
 
   // ---------------- Wipe all ----------------
 
+  // Track the most recent weekly summary date (MAX over history to avoid duplicates)
   const getLastSummaryDate = db.prepare(`
-    SELECT last_summary_date FROM weekly_summary_state LIMIT 1
+    SELECT MAX(last_summary_date) AS last_summary_date FROM weekly_summary_state
   `);
 
   const setLastSummaryDate = db.prepare(`
