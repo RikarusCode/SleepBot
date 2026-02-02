@@ -187,9 +187,29 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
     const messageLike = makeMessageAdapterFromInteraction(interaction);
 
     if (interaction.commandName === "gn") {
-      const rating = interaction.options.getInteger("rating");
-      const time = interaction.options.getString("time");
-      const note = interaction.options.getString("note");
+      // Extract and normalize rating (handle !5 format)
+      let rating = interaction.options.getInteger("rating");
+      if (rating == null) {
+        const ratingStr = interaction.options.getString("rating")?.trim();
+        if (ratingStr) {
+          const ratingMatch = ratingStr.match(/^!?\s*([1-9]|10)$/);
+          if (ratingMatch) rating = Number(ratingMatch[1]);
+        }
+      }
+
+      // Extract and normalize time (handle (9am) format)
+      let time = interaction.options.getString("time")?.trim();
+      if (time) {
+        // Remove parentheses if user included them
+        time = time.replace(/^\(|\)$/g, "").trim();
+      }
+
+      // Extract and normalize note (handle "note" format)
+      let note = interaction.options.getString("note")?.trim();
+      if (note) {
+        // Remove quotes if user included them (handles both regular and smart quotes)
+        note = note.replace(/^[""«»]|[""«»]$/g, "").trim();
+      }
 
       let raw = "gn";
       if (rating != null) raw += ` !${rating}`;
@@ -216,9 +236,29 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
     }
 
     if (interaction.commandName === "gm") {
-      const rating = interaction.options.getInteger("rating");
-      const time = interaction.options.getString("time");
-      const note = interaction.options.getString("note");
+      // Extract and normalize rating (handle !5 format)
+      let rating = interaction.options.getInteger("rating");
+      if (rating == null) {
+        const ratingStr = interaction.options.getString("rating")?.trim();
+        if (ratingStr) {
+          const ratingMatch = ratingStr.match(/^!?\s*([1-9]|10)$/);
+          if (ratingMatch) rating = Number(ratingMatch[1]);
+        }
+      }
+
+      // Extract and normalize time (handle (9am) format)
+      let time = interaction.options.getString("time")?.trim();
+      if (time) {
+        // Remove parentheses if user included them
+        time = time.replace(/^\(|\)$/g, "").trim();
+      }
+
+      // Extract and normalize note (handle "note" format)
+      let note = interaction.options.getString("note")?.trim();
+      if (note) {
+        // Remove quotes if user included them (handles both regular and smart quotes)
+        note = note.replace(/^[""«»]|[""«»]$/g, "").trim();
+      }
 
       let raw = "gm";
       if (rating != null) raw += ` !${rating}`;
