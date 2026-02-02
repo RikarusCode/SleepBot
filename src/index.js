@@ -9,6 +9,7 @@ const { handleUndo } = require("./commands/undo");
 const { generateWeeklySummary } = require("./commands/summary");
 const { handleRatingOnly, handleGN, handleGM, processPendingGNs } = require("./handlers/checkin");
 const { registerSlashCommands, handleSlashInteraction } = require("./slash");
+const { resolveTargetUser } = require("./utils");
 const { DateTime } = require("luxon");
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -104,7 +105,7 @@ client.on("messageCreate", async (message) => {
 
     // Reset commands
     if (raw.trim().startsWith("!reset")) {
-      await handleReset(message, raw, db, ADMIN_USER_ID);
+      await handleReset(message, raw, db, ADMIN_USER_ID, client);
       return;
     }
 
@@ -118,18 +119,33 @@ client.on("messageCreate", async (message) => {
     const parsed = parseMessage(raw);
     if (parsed.kind === "UNKNOWN") return;
 
+    // Handle admin targeting (if userParam is specified)
+    let targetUserId = userId;
+    let targetUsername = username;
+    if (parsed.userParam) {
+      const targetUser = await resolveTargetUser(message, parsed.userParam, ADMIN_USER_ID, client);
+      if (targetUser) {
+        targetUserId = targetUser.id;
+        targetUsername = targetUser.username;
+        console.log(`[ADMIN] ${username} (${userId}) executing command for ${targetUsername} (${targetUserId})`);
+      } else {
+        await message.reply("❌ Could not resolve target user or you don't have admin permissions.");
+        return;
+      }
+    }
+
     if (parsed.kind === "RATING_ONLY") {
-      await handleRatingOnly(message, parsed, userId, username, raw, db);
+      await handleRatingOnly(message, parsed, targetUserId, targetUsername, raw, db);
       return;
     }
 
     if (parsed.kind === "GN") {
-      await handleGN(message, parsed, userId, username, raw, db, DEFAULT_TZ);
+      await handleGN(message, parsed, targetUserId, targetUsername, raw, db, DEFAULT_TZ);
       return;
     }
 
     if (parsed.kind === "GM") {
-      await handleGM(message, parsed, userId, username, raw, db, DEFAULT_TZ);
+      await handleGM(message, parsed, targetUserId, targetUsername, raw, db, DEFAULT_TZ);
       return;
     }
   } catch (err) {

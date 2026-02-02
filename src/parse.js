@@ -115,10 +115,30 @@ function minutesBetween(isoUtcA, isoUtcB) {
 // - rating only: "!5"
 // - commands: "gn (11pm) !8", "gn !5", "gm (9am)", "good morning (9:00 am)"
 // - with notes: "gn !5 (9pm) \"pset grinding\"", "gn \"pset grinding\" !5 (9pm)"
+// - with user (admin): "gn @user", "gn user:username", "gn user:123456789"
 function parseMessage(raw) {
   const trimmed = raw.trim();
-  // Normalize smart quotes to standard quotes so mobile input like “note” works
-  const normalized = trimmed.replace(/[“”]/g, '"');
+  // Normalize smart quotes to standard quotes so mobile input like "note" works
+  const normalized = trimmed.replace(/[""]/g, '"');
+  
+  // Extract user parameter (for admin commands)
+  // Format: @user, user:username, user:123456789, or user:username
+  let userParam = null;
+  let withoutUser = normalized;
+  
+  // Try Discord mention format: <@123456789> or <@!123456789>
+  const mentionMatch = normalized.match(/<@!?(\d+)>/);
+  if (mentionMatch) {
+    userParam = mentionMatch[0]; // Keep the full mention format
+    withoutUser = normalized.replace(/<@!?\d+>\s*/, "").trim();
+  } else {
+    // Try user:username or user:123456789 format
+    const userMatch = normalized.match(/\buser:\s*([^\s]+)/i);
+    if (userMatch) {
+      userParam = userMatch[1];
+      withoutUser = normalized.replace(/\buser:\s*[^\s]+/i, "").trim();
+    }
+  }
 
   const ratingOnly = normalized.match(/^!\s*([1-9]|10)\s*$/);
   if (ratingOnly) return { kind: "RATING_ONLY", rating: Number(ratingOnly[1]) };
@@ -162,8 +182,8 @@ function parseMessage(raw) {
   }
 
   const cmd = normalize(commandPart);
-  if (GOODNIGHT.has(cmd)) return { kind: "GN", timeToken, rating, note };
-  if (GOODMORNING.has(cmd)) return { kind: "GM", timeToken, rating, note };
+  if (GOODNIGHT.has(cmd)) return { kind: "GN", timeToken, rating, note, userParam };
+  if (GOODMORNING.has(cmd)) return { kind: "GM", timeToken, rating, note, userParam };
   return { kind: "UNKNOWN" };
 }
 

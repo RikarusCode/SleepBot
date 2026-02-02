@@ -58,6 +58,59 @@ async function promptMorningAfterEvening(message) {
   );
 }
 
+// Helper to resolve a user from mention, username, or user ID (admin only)
+async function resolveTargetUser(messageOrInteraction, userParam, adminUserId, client) {
+  if (!userParam) return null;
+  
+  // Check if requester is admin
+  const requesterId = messageOrInteraction.user?.id || messageOrInteraction.author?.id;
+  if (!adminUserId || requesterId !== adminUserId) {
+    return null; // Not admin or no admin configured
+  }
+  
+  // Try to resolve user
+  const trimmed = userParam.trim();
+  
+  // Try Discord mention format: <@123456789> or <@!123456789>
+  const mentionMatch = trimmed.match(/^<@!?(\d+)>$/);
+  if (mentionMatch) {
+    try {
+      const user = await client.users.fetch(mentionMatch[1]);
+      return { id: user.id, username: user.username };
+    } catch (err) {
+      return null;
+    }
+  }
+  
+  // Try user ID directly
+  if (/^\d+$/.test(trimmed)) {
+    try {
+      const user = await client.users.fetch(trimmed);
+      return { id: user.id, username: user.username };
+    } catch (err) {
+      return null;
+    }
+  }
+  
+  // Try username (exact match from guild members)
+  if (messageOrInteraction.guild) {
+    try {
+      const members = await messageOrInteraction.guild.members.fetch();
+      const member = members.find(m => 
+        m.user.username.toLowerCase() === trimmed.toLowerCase() ||
+        m.user.displayName.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (member) {
+        return { id: member.user.id, username: member.user.username };
+      }
+    } catch (err) {
+      // Fall through
+    }
+  }
+  
+  return null;
+}
+
 module.exports = {
   safeReply,
   promptRating,
@@ -68,4 +121,5 @@ module.exports = {
   remindMorningEnergy,
   promptBothRatingsAfterGM,
   promptMorningAfterEvening,
+  resolveTargetUser,
 };

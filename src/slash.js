@@ -10,6 +10,7 @@ const { handleGN, handleGM, handleRatingOnly, processPendingGNs } = require("./h
 const { handleExport } = require("./commands/export");
 const { handleReset } = require("./commands/reset");
 const { handleUndo } = require("./commands/undo");
+const { resolveTargetUser } = require("./utils");
 
 function buildSlashCommands() {
   const commands = [];
@@ -38,6 +39,12 @@ function buildSlashCommands() {
           .setName("note")
           .setDescription("What you were doing (e.g. \"pset grinding\")")
           .setRequired(false),
+      )
+      .addUserOption((option) =>
+        option
+          .setName("user")
+          .setDescription("(Admin only) User to log for")
+          .setRequired(false),
       ),
   );
 
@@ -65,6 +72,12 @@ function buildSlashCommands() {
           .setName("note")
           .setDescription("How you slept / context (e.g. \"slept poorly\")")
           .setRequired(false),
+      )
+      .addUserOption((option) =>
+        option
+          .setName("user")
+          .setDescription("(Admin only) User to log for")
+          .setRequired(false),
       ),
   );
 
@@ -80,6 +93,12 @@ function buildSlashCommands() {
           .setRequired(true)
           .setMinValue(1)
           .setMaxValue(10),
+      )
+      .addUserOption((option) =>
+        option
+          .setName("user")
+          .setDescription("(Admin only) User to log for")
+          .setRequired(false),
       ),
   );
 
@@ -104,6 +123,12 @@ function buildSlashCommands() {
             { name: "last", value: "last" },
             { name: "all (admin only)", value: "all" },
           ),
+      )
+      .addUserOption((option) =>
+        option
+          .setName("user")
+          .setDescription("(Admin only) User to reset for")
+          .setRequired(false),
       ),
   );
 
@@ -150,7 +175,9 @@ function makeMessageAdapterFromInteraction(interaction) {
   return {
     id: interaction.id,
     author: interaction.user,
+    user: interaction.user, // For resolveTargetUser
     channelId: interaction.channelId,
+    guild: interaction.guild, // For resolveTargetUser
     reply: async (content) => {
       if (interaction.replied || interaction.deferred) {
         return interaction.followUp({ content });
@@ -181,8 +208,21 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
     // Keep GN pending cleanup logic consistent with text commands
     processPendingGNs(db, defaultTz);
 
-    const userId = interaction.user.id;
-    const username = interaction.user.username;
+    let userId = interaction.user.id;
+    let username = interaction.user.username;
+
+    // Check for admin targeting (user option)
+    const targetUserOption = interaction.options.getUser("user");
+    if (targetUserOption) {
+      // Check if requester is admin
+      if (!adminUserId || interaction.user.id !== adminUserId) {
+        await interaction.reply({ content: "❌ You don't have permission to use the user parameter.", ephemeral: true });
+        return;
+      }
+      userId = targetUserOption.id;
+      username = targetUserOption.username;
+      console.log(`[ADMIN SLASH] ${interaction.user.username} (${interaction.user.id}) executing ${interaction.commandName} for ${username} (${userId})`);
+    }
 
     const messageLike = makeMessageAdapterFromInteraction(interaction);
 
@@ -311,8 +351,14 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
 
     if (interaction.commandName === "reset") {
       const scope = interaction.options.getString("scope");
-      const raw = `!reset ${scope}`;
-      await handleReset(messageLike, raw, db, adminUserId);
+      let raw = `!reset ${scope}`;
+      
+      // Add user parameter if specified
+      if (targetUserOption) {
+        raw += ` <@${targetUserOption.id}>`;
+      }
+      
+      await handleReset(messageLike, raw, db, adminUserId, interaction.client);
 
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({ content: "♻️ Processed reset command.", ephemeral: true });
