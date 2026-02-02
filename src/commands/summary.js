@@ -8,22 +8,43 @@ function formatHours(minutes) {
   return `${hours}h ${mins}m`;
 }
 
-function calculateWeeklySummary(sessions) {
+function calculateWeeklySummary(sessions, defaultTz) {
   if (sessions.length === 0) {
     return null;
   }
 
-  const totalMinutes = sessions.reduce((sum, s) => sum + (s.sleep_minutes || 0), 0);
-  const avgMinutes = Math.round(totalMinutes / sessions.length);
-  const avgHours = (avgMinutes / 60).toFixed(1);
-
-  // Find longest and shortest sessions
+  // Filter to valid sessions only
   const validSessions = sessions.filter(s => s.sleep_minutes != null && s.sleep_minutes > 0);
   if (validSessions.length === 0) {
     return null;
   }
 
-  // Sort by sleep_minutes to find longest and shortest
+  // Group sessions by user and by day (using wake_ts_utc to determine which day)
+  // This allows naps + main sleep to be combined into total daily sleep
+  const dailySleep = {}; // key: "user_id:YYYY-MM-DD" -> total minutes
+  
+  validSessions.forEach(s => {
+    if (!s.wake_ts_utc) return; // Skip sessions without wake time
+    
+    // Determine which day this session belongs to (based on wake time)
+    const wakeTime = DateTime.fromISO(s.wake_ts_utc, { zone: "utc" }).setZone(defaultTz);
+    const dayKey = `${s.user_id}:${wakeTime.toFormat("yyyy-MM-dd")}`;
+    
+    dailySleep[dayKey] = (dailySleep[dayKey] || 0) + s.sleep_minutes;
+  });
+
+  // Calculate average sleep per day (not per session)
+  // This way naps + main sleep = total daily sleep
+  const dailyTotals = Object.values(dailySleep);
+  if (dailyTotals.length === 0) {
+    return null;
+  }
+
+  const totalMinutes = dailyTotals.reduce((sum, minutes) => sum + minutes, 0);
+  const avgMinutes = Math.round(totalMinutes / dailyTotals.length);
+  const avgHours = (avgMinutes / 60).toFixed(1);
+
+  // Find longest and shortest sessions (still session-level, not day-level)
   const sorted = [...validSessions].sort((a, b) => a.sleep_minutes - b.sleep_minutes);
   const longest = sorted[sorted.length - 1];
   const shortest = sorted[0];
@@ -44,6 +65,7 @@ function calculateWeeklySummary(sessions) {
 
   return {
     totalSessions: sessions.length,
+    totalDays: dailyTotals.length, // Number of days with sleep logged
     avgHours,
     avgMinutes,
     longest: {
@@ -73,10 +95,11 @@ function formatWeeklySummary(stats, startDate, endDate) {
   
   let summary = `📊 **Weekly Sleep Summary** (${start} - ${end})\n\n`;
   summary += `**Total Sessions:** ${stats.totalSessions}\n`;
-  summary += `**Average Sleep:** ${stats.avgHours} hours\n\n`;
+  summary += `**Days Logged:** ${stats.totalDays}\n`;
+  summary += `**Average Sleep per Day:** ${stats.avgHours} hours\n\n`;
   
-  summary += `**Longest Sleep:** ${stats.longest.formatted} (${stats.longest.username})\n`;
-  summary += `**Shortest Sleep:** ${stats.shortest.formatted} (${stats.shortest.username})\n`;
+  summary += `**Longest Single Session:** ${stats.longest.formatted} (${stats.longest.username})\n`;
+  summary += `**Shortest Single Session:** ${stats.shortest.formatted} (${stats.shortest.username})\n`;
 
   if (stats.avgRating) {
     summary += `\n**Average Energy Rating:** ${stats.avgRating}/10 (${stats.ratedCount} sessions rated)`;
@@ -97,7 +120,7 @@ async function generateWeeklySummary(db, defaultTz) {
   const startDate = now.minus({ days: 7 }).startOf("day").toUTC().toISO();
 
   const sessions = db.sessionsForWeeklySummary(startDate, endDate);
-  const stats = calculateWeeklySummary(sessions);
+  const stats = calculateWeeklySummary(sessions, defaultTz);
   
   return formatWeeklySummary(stats, startDate, endDate);
 }
