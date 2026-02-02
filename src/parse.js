@@ -134,20 +134,31 @@ function parseMessage(raw) {
     withoutNote = withoutNote.trim();
   }
 
-  let rating = null;
-  const ratingMatch = withoutNote.match(/!\s*([1-9]|10)\s*$/);
-  let withoutRating = withoutNote;
-  if (ratingMatch) {
-    rating = Number(ratingMatch[1]);
-    withoutRating = withoutNote.slice(0, ratingMatch.index).trim();
-  }
-
+  // Extract time (can be anywhere, but prefer end if multiple matches)
   let timeToken = null;
-  const timeMatch = withoutRating.match(/\(\s*([^)]+)\s*\)\s*$/);
-  let commandPart = withoutRating;
+  // Try to find time at the end first (most common case)
+  let timeMatch = withoutNote.match(/\(\s*([^)]+)\s*\)\s*$/);
+  // If not at end, find any time token
+  if (!timeMatch) {
+    timeMatch = withoutNote.match(/\(\s*([^)]+)\s*\)/);
+  }
+  let withoutTime = withoutNote;
   if (timeMatch) {
     timeToken = timeMatch[1].trim();
-    commandPart = withoutRating.slice(0, timeMatch.index).trim();
+    withoutTime = withoutNote.slice(0, timeMatch.index).trim() + " " + withoutNote.slice(timeMatch.index + timeMatch[0].length).trim();
+    withoutTime = withoutTime.trim();
+  }
+
+  // Then extract rating (can be anywhere after command)
+  let rating = null;
+  const ratingMatch = withoutTime.match(/!\s*([1-9]|10)\b/);
+  let commandPart = withoutTime;
+  if (ratingMatch) {
+    rating = Number(ratingMatch[1]);
+    // Remove the rating from the string
+    const before = withoutTime.slice(0, ratingMatch.index).trim();
+    const after = withoutTime.slice(ratingMatch.index + ratingMatch[0].length).trim();
+    commandPart = (before + " " + after).trim();
   }
 
   const cmd = normalize(commandPart);
