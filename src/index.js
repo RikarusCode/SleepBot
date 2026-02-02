@@ -8,6 +8,7 @@ const { handleReset } = require("./commands/reset");
 const { handleUndo } = require("./commands/undo");
 const { generateWeeklySummary } = require("./commands/summary");
 const { handleRatingOnly, handleGN, handleGM, processPendingGNs } = require("./handlers/checkin");
+const { registerSlashCommands, handleSlashInteraction } = require("./slash");
 const { DateTime } = require("luxon");
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -29,6 +30,13 @@ client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   console.log(`Watching channel ${SLEEP_CHANNEL_ID} tz=${DEFAULT_TZ}`);
   console.log(`DB: ${DB_PATH}`);
+
+  // Register slash commands (keeps text commands working too)
+  try {
+    await registerSlashCommands(client, TOKEN);
+  } catch (err) {
+    console.error("Failed to register slash commands:", err);
+  }
 
   // Check if we should send weekly summary on startup
   await checkAndSendWeeklySummary();
@@ -69,6 +77,11 @@ async function checkAndSendWeeklySummary() {
     console.error("Error sending weekly summary:", err);
   }
 }
+
+// Slash command handler
+client.on("interactionCreate", async (interaction) => {
+  await handleSlashInteraction(interaction, db, DEFAULT_TZ, ADMIN_USER_ID, SLEEP_CHANNEL_ID);
+});
 
 client.on("messageCreate", async (message) => {
   try {
