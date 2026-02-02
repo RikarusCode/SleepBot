@@ -21,14 +21,14 @@ async function promptRating(message) {
 async function promptMissingGM(message) {
   await safeReply(
     message,
-    "Looks like you have two `gn` in a row. Please update the existing session with `gm (time)`, then redo your current `gn`. If you do not do this within an hour, your old session will be skipped."
+    "Looks like you have two `gn` in a row. Please send a `gm (time)` first to complete your previous `gn`, then send your current goodnight message again."
   );
 }
 
 async function promptConsecutiveGM(message) {
   await safeReply(
     message,
-    "I saw two `gm` in a row. If you meant to correct the time, use `gm (9am)`; otherwise ignore."
+    "Looks like you have two `gm` in a row. Please send a `gn (time)` first to start the clock at when you went to bed, then send your current good morning message again."
   );
 }
 
