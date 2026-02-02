@@ -123,6 +123,14 @@ async function registerSlashCommands(client, token, guildId) {
   const rest = new REST({ version: "10" }).setToken(token);
 
   if (guildId) {
+    // When using guild-specific commands, clear any old global commands to avoid duplicates
+    try {
+      await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+      console.log("🧹 Cleared global application commands");
+    } catch (err) {
+      console.error("Failed to clear global commands (safe to ignore in dev):", err);
+    }
+
     // Fast install for a single guild (updates immediately)
     await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), {
       body: commands,
@@ -196,9 +204,13 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
 
       await handleGN(messageLike, parsed, userId, username, raw, db, defaultTz);
 
-      // Text handlers often only react; for slash we must send a response
+      // Text handlers often only react; for slash we must send a visible response
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "🌙 Logged good night.", ephemeral: true });
+        let replyText = "🌙 Logged good night.";
+        if (note) {
+          replyText += ` Note: ${note}`;
+        }
+        await interaction.reply({ content: replyText });
       }
       return;
     }
@@ -222,7 +234,11 @@ async function handleSlashInteraction(interaction, db, defaultTz, adminUserId, s
       await handleGM(messageLike, parsed, userId, username, raw, db, defaultTz);
 
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "☀️ Logged good morning.", ephemeral: true });
+        let replyText = "☀️ Logged good morning.";
+        if (note) {
+          replyText += ` Note: ${note}`;
+        }
+        await interaction.reply({ content: replyText });
       }
       return;
     }
