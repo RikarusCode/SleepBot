@@ -118,8 +118,13 @@ function minutesBetween(isoUtcA, isoUtcB) {
 // - with user (admin): "gn @user", "gn user:username", "gn user:123456789"
 function parseMessage(raw) {
   const trimmed = raw.trim();
-  // Normalize smart quotes to standard quotes so mobile input like "note" works
-  const normalized = trimmed.replace(/[""]/g, '"');
+  // Normalize all smart quotes (curly quotes) to standard quotes
+  // Handles all Unicode quotation mark variants
+  let normalized = trimmed
+    // Double quotes: " " " " „ and variants (U+201C, U+201D, U+201E, U+201F, etc.)
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036\u301D\u301E\uFF02]/g, '"')
+    // Single quotes: ' ' ' ‚ and variants (U+2018, U+2019, U+201A, U+201B, etc.)
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035\u301F]/g, "'");
   
   // Extract user parameter (for admin commands)
   // Format: @user, user:username, user:123456789, or user:username
@@ -144,6 +149,7 @@ function parseMessage(raw) {
   if (ratingOnly) return { kind: "RATING_ONLY", rating: Number(ratingOnly[1]) };
 
   // Extract quoted note first (can be anywhere after the command)
+  // After normalization, all quotes should be straight quotes, so this regex should work
   let note = null;
   let withoutNote = normalized;
   const noteMatch = normalized.match(/"([^"]*)"/);
