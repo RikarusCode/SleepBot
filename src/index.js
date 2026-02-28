@@ -60,18 +60,57 @@ const client = new Client({
 // Add error handlers for better debugging
 client.on("error", (error) => {
   console.error("❌ Discord client error:", error);
+  console.error("Error details:", {
+    message: error.message,
+    code: error.code,
+    name: error.name
+  });
 });
 
 client.on("warn", (warning) => {
   console.warn("⚠️ Discord client warning:", warning);
 });
 
-client.on("disconnect", () => {
+client.on("disconnect", (event) => {
   console.warn("⚠️ Discord client disconnected");
+  console.warn("Disconnect event:", {
+    code: event.code,
+    reason: event.reason,
+    wasClean: event.wasClean
+  });
 });
 
 client.on("reconnecting", () => {
   console.log("🔄 Discord client reconnecting...");
+});
+
+// WebSocket connection events
+client.on("shardDisconnect", (event, id) => {
+  console.warn(`⚠️ Shard ${id} disconnected:`, {
+    code: event.code,
+    reason: event.reason,
+    wasClean: event.wasClean
+  });
+});
+
+client.on("shardError", (error, id) => {
+  console.error(`❌ Shard ${id} error:`, error);
+});
+
+client.on("shardReconnecting", (id) => {
+  console.log(`🔄 Shard ${id} reconnecting...`);
+});
+
+client.on("shardReady", (id) => {
+  console.log(`✅ Shard ${id} ready`);
+});
+
+// Debug WebSocket connection
+client.on("debug", (info) => {
+  // Only log important debug info, not everything
+  if (info.includes("WebSocket") || info.includes("Heartbeat") || info.includes("error")) {
+    console.log(`🔍 [DEBUG] ${info}`);
+  }
 });
 
 client.once("ready", async () => {
@@ -176,12 +215,12 @@ client.on("messageCreate", async (message) => {
       await handleExport(message, db);
       return;
     }
-
+    
     // Reset commands
     if (raw.trim().startsWith("!reset")) {
       await handleReset(message, raw, db, ADMIN_USER_ID, client);
-      return;
-    }
+        return;
+      }
 
     // Undo command
     if (raw.trim() === "!undo") {
@@ -230,6 +269,12 @@ client.on("messageCreate", async (message) => {
 // Global error handlers
 process.on("unhandledRejection", (error) => {
   console.error("❌ Unhandled promise rejection:", error);
+  console.error("Rejection details:", {
+    message: error.message,
+    code: error.code,
+    name: error.name,
+    stack: error.stack?.split('\n').slice(0, 10).join('\n')
+  });
   // Don't exit - let the process continue and log the error
 });
 
@@ -259,6 +304,69 @@ console.log("🚀 Starting Discord bot...");
 console.log(`🔑 Token length: ${TOKEN ? TOKEN.length : 0} characters`);
 console.log(`🔑 Token starts with: ${TOKEN ? TOKEN.substring(0, 10) + '...' : 'N/A'}`);
 
+// Validate token format
+if (!TOKEN.match(/^[A-Za-z0-9._-]+$/)) {
+  console.error("❌ Invalid token format: Token contains invalid characters");
+  process.exit(1);
+}
+
+// Test token by making a REST API call before WebSocket login
+async function validateToken() {
+  try {
+    console.log("🔍 Validating token with Discord API...");
+    const https = require('https');
+    const url = 'https://discord.com/api/v10/users/@me';
+    
+    return new Promise((resolve, reject) => {
+      const req = https.get(url, {
+        headers: {
+          'Authorization': `Bot ${TOKEN}`,
+          'User-Agent': 'SleepBot/1.0.0'
+        },
+        timeout: 10000
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const user = JSON.parse(data);
+              console.log(`✅ Token valid! Bot username: ${user.username}#${user.discriminator}`);
+              console.log(`   Bot ID: ${user.id}`);
+              resolve(true);
+            } catch (e) {
+              console.error("❌ Failed to parse Discord API response:", e);
+              reject(e);
+            }
+          } else {
+            console.error(`❌ Token validation failed: HTTP ${res.statusCode}`);
+            console.error(`   Response: ${data.substring(0, 200)}`);
+            if (res.statusCode === 401) {
+              console.error("   This means the token is INVALID or EXPIRED");
+            }
+            reject(new Error(`HTTP ${res.statusCode}`));
+          }
+        });
+      });
+      
+      req.on('error', (error) => {
+        console.error("❌ Network error validating token:", error.message);
+        console.error("   This might indicate network connectivity issues from Render");
+        reject(error);
+      });
+      
+      req.on('timeout', () => {
+        req.destroy();
+        console.error("❌ Token validation timeout - Discord API not reachable");
+        reject(new Error('Timeout'));
+      });
+    });
+  } catch (error) {
+    console.error("❌ Error during token validation:", error);
+    throw error;
+  }
+}
+
 // Set a timeout to detect if login hangs
 const loginTimeout = setTimeout(() => {
   console.error("❌ Login timeout: Bot failed to connect within 30 seconds");
@@ -270,7 +378,12 @@ const loginTimeout = setTimeout(() => {
   process.exit(1);
 }, 30000); // 30 second timeout
 
-client.login(TOKEN)
+// Validate token first, then login
+validateToken()
+  .then(() => {
+    console.log("🔌 Token validated, attempting WebSocket connection...");
+    return client.login(TOKEN);
+  })
   .then(() => {
     clearTimeout(loginTimeout);
     console.log("✅ Login promise resolved, waiting for 'ready' event...");
@@ -281,8 +394,14 @@ client.login(TOKEN)
     console.error("Error details:", {
       message: error.message,
       code: error.code,
-      stack: error.stack?.split('\n').slice(0, 5).join('\n')
+      name: error.name,
+      stack: error.stack?.split('\n').slice(0, 10).join('\n')
     });
-    console.error("Check that your DISCORD_TOKEN is valid and the bot has proper permissions");
+    console.error("\nTroubleshooting:");
+    console.error("  1. Verify DISCORD_TOKEN in Render dashboard matches your bot token");
+    console.error("  2. Check Discord Developer Portal: https://discord.com/developers/applications");
+    console.error("  3. Ensure bot is not disabled or banned");
+    console.error("  4. Try regenerating the token");
+    console.error("  5. Check Render network/firewall settings");
     process.exit(1);
   });
