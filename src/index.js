@@ -19,8 +19,24 @@ const DEFAULT_TZ = process.env.DEFAULT_TZ || "America/Los_Angeles";
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID || null;
 const GUILD_ID = process.env.GUILD_ID || null;
 
-if (!TOKEN) throw new Error("DISCORD_TOKEN missing from .env");
-if (!SLEEP_CHANNEL_ID) throw new Error("SLEEP_CHANNEL_ID missing from .env");
+if (!TOKEN) {
+  console.error("❌ CRITICAL: DISCORD_TOKEN missing from environment variables");
+  console.error("Please set DISCORD_TOKEN in Render dashboard Environment tab");
+  process.exit(1);
+}
+if (!SLEEP_CHANNEL_ID) {
+  console.error("❌ CRITICAL: SLEEP_CHANNEL_ID missing from environment variables");
+  console.error("Please set SLEEP_CHANNEL_ID in Render dashboard Environment tab");
+  process.exit(1);
+}
+
+console.log("🔧 Environment check:");
+console.log(`  DISCORD_TOKEN: ${TOKEN ? "✅ Set" : "❌ Missing"}`);
+console.log(`  SLEEP_CHANNEL_ID: ${SLEEP_CHANNEL_ID ? "✅ Set" : "❌ Missing"}`);
+console.log(`  DB_PATH: ${DB_PATH}`);
+console.log(`  DEFAULT_TZ: ${DEFAULT_TZ}`);
+console.log(`  ADMIN_USER_ID: ${ADMIN_USER_ID || "Not set"}`);
+console.log(`  GUILD_ID: ${GUILD_ID || "Not set"}`);
 
 const db = initDb(DB_PATH);
 
@@ -28,24 +44,67 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
+// Add error handlers for better debugging
+client.on("error", (error) => {
+  console.error("❌ Discord client error:", error);
+});
+
+client.on("warn", (warning) => {
+  console.warn("⚠️ Discord client warning:", warning);
+});
+
+client.on("disconnect", () => {
+  console.warn("⚠️ Discord client disconnected");
+});
+
+client.on("reconnecting", () => {
+  console.log("🔄 Discord client reconnecting...");
+});
+
 client.once("ready", async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  console.log(`Watching channel ${SLEEP_CHANNEL_ID} tz=${DEFAULT_TZ}`);
-  console.log(`DB: ${DB_PATH}`);
+  console.log("=".repeat(50));
+  console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
+  console.log(`📡 Bot ID: ${client.user.id}`);
+  console.log(`👀 Watching channel: ${SLEEP_CHANNEL_ID}`);
+  console.log(`🌍 Timezone: ${DEFAULT_TZ}`);
+  console.log(`💾 Database: ${DB_PATH}`);
+  console.log("=".repeat(50));
+
+  // Verify channel access
+  try {
+    const channel = await client.channels.fetch(SLEEP_CHANNEL_ID);
+    if (!channel) {
+      console.error(`❌ ERROR: Channel ${SLEEP_CHANNEL_ID} not found or bot doesn't have access`);
+    } else {
+      console.log(`✅ Channel verified: #${channel.name} (${channel.id})`);
+    }
+  } catch (err) {
+    console.error(`❌ ERROR: Failed to fetch channel ${SLEEP_CHANNEL_ID}:`, err.message);
+  }
 
   // Register slash commands (keeps text commands working too)
   try {
+    console.log("📝 Registering slash commands...");
     await registerSlashCommands(client, TOKEN, GUILD_ID);
+    console.log("✅ Slash commands registered successfully");
   } catch (err) {
-    console.error("Failed to register slash commands:", err);
+    console.error("❌ Failed to register slash commands:", err);
   }
 
   // Check if we should send weekly summary on startup
-  await checkAndSendWeeklySummary();
+  try {
+    await checkAndSendWeeklySummary();
+  } catch (err) {
+    console.error("❌ Error checking weekly summary on startup:", err);
+  }
 
   // Check for weekly summary every hour
   setInterval(async () => {
-    await checkAndSendWeeklySummary();
+    try {
+      await checkAndSendWeeklySummary();
+    } catch (err) {
+      console.error("❌ Error in weekly summary interval:", err);
+    }
   }, 60 * 60 * 1000); // Every hour
 });
 
@@ -153,10 +212,37 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+// Global error handlers
+process.on("unhandledRejection", (error) => {
+  console.error("❌ Unhandled promise rejection:", error);
+  // Don't exit - let the process continue and log the error
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("❌ Uncaught exception:", error);
+  db.close();
+  process.exit(1);
+});
+
 // Clean shutdown
 process.on("SIGINT", () => {
+  console.log("🛑 Received SIGINT, shutting down gracefully...");
   db.close();
+  client.destroy();
   process.exit(0);
 });
 
-client.login(TOKEN);
+process.on("SIGTERM", () => {
+  console.log("🛑 Received SIGTERM, shutting down gracefully...");
+  db.close();
+  client.destroy();
+  process.exit(0);
+});
+
+// Start the bot
+console.log("🚀 Starting Discord bot...");
+client.login(TOKEN).catch((error) => {
+  console.error("❌ Failed to login to Discord:", error);
+  console.error("Check that your DISCORD_TOKEN is valid and the bot has proper permissions");
+  process.exit(1);
+});
