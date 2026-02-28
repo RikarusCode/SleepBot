@@ -304,67 +304,10 @@ console.log("🚀 Starting Discord bot...");
 console.log(`🔑 Token length: ${TOKEN ? TOKEN.length : 0} characters`);
 console.log(`🔑 Token starts with: ${TOKEN ? TOKEN.substring(0, 10) + '...' : 'N/A'}`);
 
-// Validate token format
+// Validate token format (basic check)
 if (!TOKEN.match(/^[A-Za-z0-9._-]+$/)) {
   console.error("❌ Invalid token format: Token contains invalid characters");
   process.exit(1);
-}
-
-// Test token by making a REST API call before WebSocket login
-async function validateToken() {
-  try {
-    console.log("🔍 Validating token with Discord API...");
-    const https = require('https');
-    const url = 'https://discord.com/api/v10/users/@me';
-    
-    return new Promise((resolve, reject) => {
-      const req = https.get(url, {
-        headers: {
-          'Authorization': `Bot ${TOKEN}`,
-          'User-Agent': 'SleepBot/1.0.0'
-        },
-        timeout: 10000
-      }, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            try {
-              const user = JSON.parse(data);
-              console.log(`✅ Token valid! Bot username: ${user.username}#${user.discriminator}`);
-              console.log(`   Bot ID: ${user.id}`);
-              resolve(true);
-            } catch (e) {
-              console.error("❌ Failed to parse Discord API response:", e);
-              reject(e);
-            }
-          } else {
-            console.error(`❌ Token validation failed: HTTP ${res.statusCode}`);
-            console.error(`   Response: ${data.substring(0, 200)}`);
-            if (res.statusCode === 401) {
-              console.error("   This means the token is INVALID or EXPIRED");
-            }
-            reject(new Error(`HTTP ${res.statusCode}`));
-          }
-        });
-      });
-      
-      req.on('error', (error) => {
-        console.error("❌ Network error validating token:", error.message);
-        console.error("   This might indicate network connectivity issues from Render");
-        reject(error);
-      });
-      
-      req.on('timeout', () => {
-        req.destroy();
-        console.error("❌ Token validation timeout - Discord API not reachable");
-        reject(new Error('Timeout'));
-      });
-    });
-  } catch (error) {
-    console.error("❌ Error during token validation:", error);
-    throw error;
-  }
 }
 
 // Set a timeout to detect if login hangs
@@ -375,15 +318,13 @@ const loginTimeout = setTimeout(() => {
   console.error("  2. Network connectivity issues");
   console.error("  3. Discord API is down");
   console.error("  4. Bot account is disabled or banned");
+  console.error("  5. Rate limiting (try again in a few minutes)");
   process.exit(1);
 }, 30000); // 30 second timeout
 
-// Validate token first, then login
-validateToken()
-  .then(() => {
-    console.log("🔌 Token validated, attempting WebSocket connection...");
-    return client.login(TOKEN);
-  })
+// Attempt WebSocket login directly (token validation happens during login)
+console.log("🔌 Attempting WebSocket connection to Discord...");
+client.login(TOKEN)
   .then(() => {
     clearTimeout(loginTimeout);
     console.log("✅ Login promise resolved, waiting for 'ready' event...");
