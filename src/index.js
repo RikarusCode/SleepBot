@@ -38,7 +38,20 @@ console.log(`  DEFAULT_TZ: ${DEFAULT_TZ}`);
 console.log(`  ADMIN_USER_ID: ${ADMIN_USER_ID || "Not set"}`);
 console.log(`  GUILD_ID: ${GUILD_ID || "Not set"}`);
 
-const db = initDb(DB_PATH);
+console.log(`💾 Initializing database at: ${DB_PATH}`);
+let db;
+try {
+  db = initDb(DB_PATH);
+  console.log("✅ Database initialized successfully");
+} catch (dbError) {
+  console.error("❌ Failed to initialize database:", dbError);
+  console.error("Database error details:", {
+    message: dbError.message,
+    code: dbError.code,
+    errno: dbError.errno
+  });
+  process.exit(1);
+}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -68,6 +81,8 @@ client.once("ready", async () => {
   console.log(`👀 Watching channel: ${SLEEP_CHANNEL_ID}`);
   console.log(`🌍 Timezone: ${DEFAULT_TZ}`);
   console.log(`💾 Database: ${DB_PATH}`);
+  console.log(`🔗 Gateway: ${client.ws.gateway}`);
+  console.log(`📊 Guilds: ${client.guilds.cache.size}`);
   console.log("=".repeat(50));
 
   // Verify channel access
@@ -241,8 +256,33 @@ process.on("SIGTERM", () => {
 
 // Start the bot
 console.log("🚀 Starting Discord bot...");
-client.login(TOKEN).catch((error) => {
-  console.error("❌ Failed to login to Discord:", error);
-  console.error("Check that your DISCORD_TOKEN is valid and the bot has proper permissions");
+console.log(`🔑 Token length: ${TOKEN ? TOKEN.length : 0} characters`);
+console.log(`🔑 Token starts with: ${TOKEN ? TOKEN.substring(0, 10) + '...' : 'N/A'}`);
+
+// Set a timeout to detect if login hangs
+const loginTimeout = setTimeout(() => {
+  console.error("❌ Login timeout: Bot failed to connect within 30 seconds");
+  console.error("This usually means:");
+  console.error("  1. Invalid DISCORD_TOKEN");
+  console.error("  2. Network connectivity issues");
+  console.error("  3. Discord API is down");
+  console.error("  4. Bot account is disabled or banned");
   process.exit(1);
-});
+}, 30000); // 30 second timeout
+
+client.login(TOKEN)
+  .then(() => {
+    clearTimeout(loginTimeout);
+    console.log("✅ Login promise resolved, waiting for 'ready' event...");
+  })
+  .catch((error) => {
+    clearTimeout(loginTimeout);
+    console.error("❌ Failed to login to Discord:", error);
+    console.error("Error details:", {
+      message: error.message,
+      code: error.code,
+      stack: error.stack?.split('\n').slice(0, 5).join('\n')
+    });
+    console.error("Check that your DISCORD_TOKEN is valid and the bot has proper permissions");
+    process.exit(1);
+  });
